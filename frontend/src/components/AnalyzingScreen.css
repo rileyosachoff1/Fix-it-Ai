@@ -1,0 +1,88 @@
+.analyzing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 20px;
+  padding: 40px 24px;
+  animation: fadeIn 0.3s ease;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────────── */
+.analyzing__spinner-wrap {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.analyzing__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.analyzing__ring--outer {
+  border-top-color: var(--accent);
+  border-right-color: rgba(255,107,0,0.3);
+  animation: spin 1.2s linear infinite;
+}
+.analyzing__ring--inner {
+  inset: 14px;
+  border-top-color: var(--accent-l);
+  border-left-color: rgba(255,140,51,0.3);
+  animation: spin 0.8s linear infinite reverse;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.analyzing__gear {
+  font-size: 36px;
+  animation: pulse-gear 1.5s ease-in-out infinite;
+}
+@keyframes pulse-gear {
+  0%, 100% { transform: scale(1);    opacity: 0.9; }
+  50%       { transform: scale(1.12); opacity: 1;   }
+}
+
+/* ── Text ────────────────────────────────────────────────────────────────────── */
+.analyzing__title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+.analyzing__msg {
+  font-size: 15px;
+  color: var(--text2);
+  text-align: center;
+  animation: fadeMsg 0.4s ease;
+  min-height: 1.5em;
+}
+@keyframes fadeMsg {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Progress dots ───────────────────────────────────────────────────────────── */
+.analyzing__dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.analyzing__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border2);
+  transition: background 0.3s, transform 0.3s;
+}
+.analyzing__dot--active {
+  background: var(--accent);
+  transform: scale(1.4);
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

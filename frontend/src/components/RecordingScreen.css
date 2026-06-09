@@ -1,0 +1,146 @@
+/* ── Layout ─────────────────────────────────────────────────────────────────── */
+.rec {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+  align-items: center;
+  animation: fadeIn 0.25s ease;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.rec__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32px 0 24px;
+}
+.rec__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rec__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: blink 1.2s ease-in-out infinite;
+  box-shadow: 0 0 8px var(--danger);
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+.rec__status-text {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--danger);
+}
+.rec__timer {
+  font-size: 28px;
+  font-weight: 300;
+  letter-spacing: 3px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Waveform ────────────────────────────────────────────────────────────────── */
+.rec__waveform-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+  min-height: 160px;
+  max-height: 220px;
+  position: relative;
+}
+.rec__waveform-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(255,107,0,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+.rec__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Instruction ─────────────────────────────────────────────────────────────── */
+.rec__instruction {
+  font-size: 14px;
+  color: var(--text3);
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────────── */
+.rec__controls {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.rec__cancel-btn {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text2);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.rec__cancel-btn:hover { background: var(--surface3); }
+
+.rec__stop-btn {
+  flex: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #ff7a1a, #e55a00);
+  border: none;
+  border-radius: var(--radius);
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 16px 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(255,107,0,0.4);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.rec__stop-btn:hover  { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(255,107,0,0.5); }
+.rec__stop-btn:active { transform: translateY(0); }
+
+.rec__stop-icon {
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ── Hint ────────────────────────────────────────────────────────────────────── */
+.rec__hint {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--text3);
+  text-align: center;
+  animation: fadeIn 0.4s ease;
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
