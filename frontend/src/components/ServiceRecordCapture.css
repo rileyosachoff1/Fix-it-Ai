@@ -1,0 +1,390 @@
+/* ── Service Record Capture Sheet ─────────────────────────────────────────── */
+
+.svc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0,0,0,0.72);
+  display: flex;
+  align-items: flex-end;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: svc-overlay-in 0.2s ease-out;
+}
+
+@keyframes svc-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.svc-sheet {
+  width: 100%;
+  max-height: 92svh;
+  background: var(--bg-card);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  border: 1px solid var(--border-strong);
+  border-bottom: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: svc-sheet-up 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+@keyframes svc-sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* ── Handle pill ─────────────────────────────────────────────────────────── */
+.svc-sheet__handle {
+  width: 36px;
+  height: 4px;
+  background: var(--border-strong);
+  border-radius: 2px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.svc-sheet__header {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.svc-sheet__title {
+  flex: 1;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.svc-sheet__close {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.svc-sheet__close:hover { background: var(--bg-card-hover); }
+
+.svc-sheet__back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Choose step ─────────────────────────────────────────────────────────── */
+.svc-choose {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 20px 32px;
+}
+
+.svc-choose__btn {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.svc-choose__btn:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
+.svc-choose__btn:active { transform: scale(0.98); }
+
+.svc-choose__btn--photo { border-color: rgba(10,132,255,0.25); }
+.svc-choose__btn--photo:hover { border-color: var(--accent); }
+
+.svc-choose__icon {
+  font-size: 32px;
+  flex-shrink: 0;
+}
+
+.svc-choose__label {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.svc-choose__desc {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Preview step ────────────────────────────────────────────────────────── */
+.svc-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.svc-preview__img {
+  width: 100%;
+  max-height: 40svh;
+  object-fit: contain;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+}
+
+.svc-preview__scanning {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.svc-preview__spinner {
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: svc-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes svc-spin { to { transform: rotate(360deg); } }
+
+.svc-preview__scan-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transition: opacity 0.15s;
+}
+.svc-preview__scan-btn:hover { opacity: 0.9; }
+.svc-preview__scan-btn svg { width: 18px; height: 18px; }
+
+.svc-preview__manual-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+/* ── Confidence banner ───────────────────────────────────────────────────── */
+.svc-confidence {
+  margin: 0 20px 4px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.svc-confidence--high   { background: var(--success-muted); color: var(--success); border: 1px solid rgba(48,209,88,0.2); }
+.svc-confidence--medium { background: var(--warning-muted); color: var(--warning); border: 1px solid rgba(255,159,10,0.2); }
+.svc-confidence--low    { background: var(--danger-muted);  color: var(--danger);  border: 1px solid rgba(255,69,58,0.2); }
+
+/* ── Form ────────────────────────────────────────────────────────────────── */
+.svc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.svc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.svc-field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.svc-field__input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.svc-field__input:focus { border-color: var(--accent); }
+.svc-field__input::placeholder { color: var(--text-muted); }
+
+.svc-field__select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234a4a54' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.svc-field__textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+
+/* ── Services section ────────────────────────────────────────────────────── */
+.svc-services {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.svc-services__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.svc-services__add {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.svc-service-row {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.svc-service-row__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.svc-service-row__top .svc-field__input { flex: 1; }
+
+.svc-service-row__remove {
+  background: var(--danger-muted);
+  border: none;
+  color: var(--danger);
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.svc-service-row__bottom {
+  display: flex;
+  gap: 8px;
+}
+
+.svc-field__input--detail { flex: 1; }
+.svc-field__input--cost   { flex: 0 0 90px; text-align: right; }
+.svc-field__input--cost::-webkit-inner-spin-button,
+.svc-field__input--cost::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+/* ── Total cost ──────────────────────────────────────────────────────────── */
+.svc-cost-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.svc-cost-wrap__currency {
+  position: absolute;
+  left: 14px;
+  font-size: 15px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.svc-field__input--total { padding-left: 28px; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.svc-footer {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--divider);
+  flex-shrink: 0;
+}
+
+.svc-footer__cancel {
+  flex: 1;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--glass);
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.svc-footer__cancel:hover { background: var(--bg-elevated); }
+
+.svc-footer__save {
+  flex: 2;
+  padding: 14px;
+  border-radius: 14px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transition: opacity 0.15s, background 0.15s;
+}
+.svc-footer__save:hover    { opacity: 0.92; }
+.svc-footer__save:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }

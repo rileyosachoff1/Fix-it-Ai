@@ -141,14 +141,9 @@ function AltCard({ d, index }) {
 }
 
 // ── Mechanic section ──────────────────────────────────────────────────────────
-function MechanicSection({ location, diagnosisName, onSetLocation }) {
+function MechanicSection({ location, diagnosisName, onSetLocation, onFindMechanic }) {
   const [localLoc, setLocalLoc] = useState('');
-
-  // Extract first part of location for button label (e.g. "Toronto" from "Toronto, ON")
   const cityLabel = location ? location.split(',')[0].trim() : null;
-  const mapsUrl = location
-    ? `https://www.google.com/maps/search/auto+repair+shop+near+${encodeURIComponent(location)}`
-    : null;
 
   function handleInlineFind(e) {
     e.preventDefault();
@@ -158,30 +153,48 @@ function MechanicSection({ location, diagnosisName, onSetLocation }) {
 
   return (
     <div className="res__mechanic">
-      <h2 className="res__section-label">FIND A MECHANIC NEAR YOU</h2>
+      <h2 className="res__section-label">FIND A MECHANIC</h2>
 
-      {location ? (
+      {onFindMechanic ? (
+        <div className="res__mechanic-cta">
+          <div className="res__mechanic-cta-header">
+            <span className="res__mechanic-cta-icon">🔧</span>
+            <div>
+              <h3 className="res__mechanic-cta-title">Find a FixIt AI partner shop</h3>
+              <p className="res__mechanic-cta-desc">
+                {diagnosisName
+                  ? `Shops see "${diagnosisName}" before you arrive — no re-explaining needed.`
+                  : 'Browse verified partner shops nearby and send your diagnosis in one tap.'}
+              </p>
+            </div>
+          </div>
+          <button className="res__mechanic-btn res__mechanic-btn--primary" onClick={onFindMechanic}>
+            <span className="res__mechanic-btn-star">✦</span>
+            Find a Mechanic Near You
+          </button>
+          {location && (
+            <p className="res__mechanic-location-hint">📍 Near {cityLabel || location}</p>
+          )}
+        </div>
+      ) : location ? (
         <div className="res__mechanic-cta">
           <div className="res__mechanic-cta-header">
             <span className="res__mechanic-cta-icon">📍</span>
             <div>
               <h3 className="res__mechanic-cta-title">Get this fixed today</h3>
               <p className="res__mechanic-cta-desc">
-                Based on your diagnosis ({diagnosisName}), we recommend getting this inspected by a certified mechanic.
+                Based on your diagnosis ({diagnosisName}), we recommend a certified mechanic inspection.
               </p>
             </div>
           </div>
           <a
-            href={mapsUrl}
+            href={`https://www.google.com/maps/search/auto+repair+shop+near+${encodeURIComponent(location)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="res__mechanic-btn"
           >
             🗺️ Find Repair Shops Near {cityLabel}
           </a>
-          <p className="res__mechanic-coming-soon">
-            FixIt AI partner shops coming soon — they'll be highlighted when available
-          </p>
         </div>
       ) : (
         <div className="res__mechanic-prompt">
@@ -204,7 +217,7 @@ function MechanicSection({ location, diagnosisName, onSetLocation }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function ResultsScreen({ diagnosis: d, onDiagnoseAgain, onSetLocation }) {
+export default function ResultsScreen({ diagnosis: d, onDiagnoseAgain, onSetLocation, onFindMechanic }) {
   // Support both new { primary, alternatives } format and old flat format
   const primary      = d.primary ?? d;
   const alternatives = d.alternatives ?? [];
@@ -257,6 +270,7 @@ export default function ResultsScreen({ diagnosis: d, onDiagnoseAgain, onSetLoca
           location={d.location}
           diagnosisName={primary.diagnosis}
           onSetLocation={onSetLocation}
+          onFindMechanic={onFindMechanic}
         />
 
         {/* Diagnose again */}

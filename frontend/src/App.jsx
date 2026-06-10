@@ -1,67 +1,155 @@
-import { useState, useCallback, useEffect } from 'react';
-import HomeScreen      from './components/HomeScreen.jsx';
-import GuidedScreen    from './components/GuidedScreen.jsx';
-import RecordingScreen from './components/RecordingScreen.jsx';
-import AnalyzingScreen from './components/AnalyzingScreen.jsx';
-import ResultsScreen   from './components/ResultsScreen.jsx';
-import { audioService } from './services/audioService.js';
-import * as obd2Service  from './services/obd2Service.js';
-import { diagnose }     from './services/api.js';
+import { useState, useEffect, useCallback } from 'react';
+import TabBar          from './components/TabBar.jsx';
+import HomeTab         from './components/HomeTab.jsx';
+import LiveTab         from './components/LiveTab.jsx';
+import AlertsTab       from './components/AlertsTab.jsx';
+import MaintenanceTab  from './components/MaintenanceTab.jsx';
+import VehicleTab      from './components/VehicleTab.jsx';
+import DiagnoseModal   from './components/DiagnoseModal.jsx';
+import MechanicScreen  from './screens/MechanicScreen.jsx';
+import { DEFAULT_SCHEDULE } from './data/serviceSchedules.js';
+import * as obd2Service from './services/obd2Service.js';
 
-const SCREENS = {
-  HOME:      'home',
-  GUIDED:    'guided',
-  RECORDING: 'recording',
-  ANALYZING: 'analyzing',
-  RESULTS:   'results',
-};
+// Build DEFAULT_MAINTENANCE from serviceSchedules (all intervals in km)
+const DEFAULT_MAINTENANCE = Object.fromEntries(
+  Object.entries(DEFAULT_SCHEDULE).map(([key, val]) => [
+    key,
+    { lastDate: null, lastKm: null, intervalKm: val.intervalKm, label: val.label },
+  ])
+);
+
+// ── Photo utilities (module-level — no React deps) ────────────────────────────
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function compressImage(dataUrl, maxWidth = 1200, quality = 0.82) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale  = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl);  // fallback: use original
+    img.src = dataUrl;
+  });
+}
 
 export default function App() {
-  const [screen,          setScreen]          = useState(SCREENS.HOME);
-  const [diagnosis,       setDiagnosis]       = useState(null);
-  const [error,           setError]           = useState(null);
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  const [activeTab,     setActiveTab]     = useState('home');
+  const [diagnoseOpen,  setDiagnoseOpen]  = useState(false);
+  // mechanicScreen: null | { diagnosis: object|null }
+  const [mechanicScreen, setMechanicScreen] = useState(null);
+
+  // ── Vehicle ────────────────────────────────────────────────────────────────
+  const [vehicleInfo, setVehicleInfo] = useState({
+    year: '', make: '', model: '', trim: '',
+    nickname: '', vehicleColor: '',
+    odometer: '', odometerUnit: 'km',
+    postalCode: '',
+    licensePlate: '', vin: '', purchaseDate: '',
+  });
+  const [location,       setLocation]       = useState('');
+  const [locationCoords, setLocationCoords] = useState(null); // { lat, lon } | null
+  const [units,          setUnits]          = useState('metric');
+
+  // ── Vehicle photo ──────────────────────────────────────────────────────────
+  // Shape: null  |  { dataUrl: string, analysis: object|null }
+  const [vehiclePhoto,        setVehiclePhoto]        = useState(null);
+  const [vehiclePhotoLoading, setVehiclePhotoLoading] = useState(false);
+  const [vehiclePhotoError,   setVehiclePhotoError]   = useState(null);
+
+  // Load photo from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('fixit_vehicle_photo');
+      if (saved) setVehiclePhoto(JSON.parse(saved));
+    } catch { /* quota or parse error — ignore */ }
+  }, []);
+
+  // Persist photo to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      if (vehiclePhoto?.dataUrl) {
+        localStorage.setItem('fixit_vehicle_photo', JSON.stringify(vehiclePhoto));
+      } else {
+        localStorage.removeItem('fixit_vehicle_photo');
+      }
+    } catch (err) {
+      // Quota exceeded (large images) — not critical
+      console.warn('[photo] localStorage quota:', err.message);
+    }
+  }, [vehiclePhoto]);
+
+  // ── OBD2 ───────────────────────────────────────────────────────────────────
+  const [obd2Connected,   setObd2Connected]   = useState(false);
+  const [obd2DeviceName,  setObd2DeviceName]  = useState('');
+  const [obd2Connecting,  setObd2Connecting]  = useState(false);
+  const [mockScenarioIdx, setMockScenarioIdx] = useState(0);
+  const [liveData,   setLiveData]   = useState(null);
+  const [faultCodes, setFaultCodes] = useState([]);
+
+  // ── Diagnosis history ──────────────────────────────────────────────────────
   const [recentDiagnoses, setRecentDiagnoses] = useState([]);
 
-  // ── Persistent state ────────────────────────────────────────────────────────
-  const [vehicleInfo, setVehicleInfo] = useState({ year: '', make: '', model: '' });
-  const [location,    setLocation]    = useState('');
+  // ── Maintenance ────────────────────────────────────────────────────────────
+  const [maintenanceSchedule, setMaintenanceSchedule] = useState(DEFAULT_MAINTENANCE);
 
-  // Media data for the simple (non-guided) flow
-  const [mediaData, setMediaData] = useState({ textDescription: '', photos: [], videoFrames: [], videoName: '' });
+  // ── Service records ────────────────────────────────────────────────────────
+  const [serviceRecords, setServiceRecords] = useState([]);
 
-  // ── OBD2 scanner state ──────────────────────────────────────────────────────
-  const [obd2Connected,  setObd2Connected]  = useState(false);
-  const [obd2DeviceName, setObd2DeviceName] = useState('');
-  const [obd2Connecting, setObd2Connecting] = useState(false);
-  const [mockScenarioIdx, setMockScenarioIdx] = useState(0);
-
-  // Register for OBD2 connection state changes (once, on mount)
+  // ── OBD2 connection listener ───────────────────────────────────────────────
   useEffect(() => {
     obd2Service.onConnectionChange(info => {
       setObd2Connected(info.connected);
       setObd2DeviceName(info.deviceName || '');
+      if (!info.connected) { setLiveData(null); setFaultCodes([]); }
     });
   }, []);
 
-  const handleVehicleInfoChange = useCallback((updates) => {
-    setVehicleInfo(prev => ({ ...prev, ...updates }));
-  }, []);
+  // ── Live sensor polling ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!obd2Connected) return;
+    let cancelled = false;
+    async function poll() {
+      const data = await obd2Service.readAllSensors().catch(() => null);
+      if (!cancelled && data) setLiveData(data);
+    }
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [obd2Connected]);
 
-  const handleMediaDataChange = useCallback((updates) => {
-    setMediaData(prev => ({ ...prev, ...updates }));
-  }, []);
+  // ── Fault code polling ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!obd2Connected) return;
+    let cancelled = false;
+    async function poll() {
+      const codes = await obd2Service.readFaultCodes().catch(() => []);
+      if (!cancelled) setFaultCodes(codes || []);
+    }
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [obd2Connected]);
 
-  // ── OBD2 handlers ───────────────────────────────────────────────────────────
+  // ── OBD2 handlers ──────────────────────────────────────────────────────────
   const handleConnectScanner = useCallback(async () => {
     setObd2Connecting(true);
-    setError(null);
     try {
       await obd2Service.connectScanner();
     } catch (err) {
-      // NotFoundError = user cancelled the device picker — not worth showing an error
-      if (err.name !== 'NotFoundError') {
-        setError(`Scanner connection failed: ${err.message}`);
-      }
+      if (err.name !== 'NotFoundError') console.error('Scanner:', err.message);
     } finally {
       setObd2Connecting(false);
     }
@@ -73,7 +161,7 @@ export default function App() {
       await obd2Service.connectMock(mockScenarioIdx);
       setMockScenarioIdx(prev => (prev + 1) % 3);
     } catch (err) {
-      setError(`Demo failed: ${err.message}`);
+      console.error('Mock:', err.message);
     } finally {
       setObd2Connecting(false);
     }
@@ -83,183 +171,258 @@ export default function App() {
     await obd2Service.disconnectScanner().catch(() => {});
   }, []);
 
-  // ── Helper: save entry ──────────────────────────────────────────────────────
-  function saveEntry(result, { duration, hasVisualMedia }) {
-    const entry = {
-      ...result,
-      id:            Date.now(),
-      recordedAt:    new Date().toISOString(),
-      duration,
-      vehicleInfo:   vehicleInfo.make ? { ...vehicleInfo } : null,
-      hasVisualMedia,
-      location:      location.trim() || null,
-    };
-    setDiagnosis(entry);
-    setRecentDiagnoses(prev => [entry, ...prev].slice(0, 10));
-    return entry;
-  }
-
-  // ── Guided flow ─────────────────────────────────────────────────────────────
-  const handleStartGuided = useCallback(() => {
-    setError(null);
-    setScreen(SCREENS.GUIDED);
+  // ── Diagnosis complete ─────────────────────────────────────────────────────
+  const handleDiagnosisComplete = useCallback((entry) => {
+    setRecentDiagnoses(prev => [entry, ...prev].slice(0, 20));
   }, []);
 
-  // "Skip All & Just Record" from GuidedScreen
-  const handleSkipToRecord = useCallback(async () => {
-    setError(null);
-    try {
-      await audioService.start();
-      setScreen(SCREENS.RECORDING);
-    } catch (err) {
-      setError(
-        err.name === 'NotAllowedError'
-          ? 'Microphone access denied. Please allow microphone access and try again.'
-          : `Could not access microphone: ${err.message}`
-      );
-      setScreen(SCREENS.HOME);
-    }
+  // ── Mechanic screen handlers ───────────────────────────────────────────────
+  const handleOpenMechanic = useCallback((diagnosis = null) => {
+    setDiagnoseOpen(false);
+    setMechanicScreen({ diagnosis });
   }, []);
 
-  // GuidedScreen "Run Diagnosis" → ANALYZING
-  const handleGuidedComplete = useCallback(async (data) => {
-    setScreen(SCREENS.ANALYZING);
-    try {
-      const hasVisualMedia = (data.images?.length ?? 0) > 0 || (data.videoFrames?.length ?? 0) > 0;
+  const handleCloseMechanic = useCallback(() => {
+    setMechanicScreen(null);
+  }, []);
 
-      const result = await diagnose({
-        description:          data.primaryDescription,
-        duration:             data.primaryDuration,
-        vehicleInfo:          vehicleInfo.make ? vehicleInfo : undefined,
-        textDescription:      data.textDescription,
-        images:               data.images,
-        videoFrames:          data.videoFrames,
-        additionalRecordings: data.additionalRecordings,
-        obd2Data:             data.obd2Data || undefined,
+  // ── Vehicle helpers ────────────────────────────────────────────────────────
+  const handleVehicleInfoChange = useCallback((updates) => {
+    setVehicleInfo(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  // ── Vehicle photo handlers ─────────────────────────────────────────────────
+  const handleVehiclePhotoSelect = useCallback(async (file) => {
+    if (!file) return;
+    setVehiclePhotoError(null);
+    setVehiclePhotoLoading(true);
+
+    try {
+      const rawDataUrl = await readFileAsDataUrl(file);
+      const compressed = await compressImage(rawDataUrl, 1200, 0.82);
+
+      // Show photo immediately while analysis runs (optimistic)
+      setVehiclePhoto({ dataUrl: compressed, analysis: null });
+
+      const base64 = compressed.split(',')[1];
+      const res    = await fetch('/api/analyze-vehicle-photo', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ image: base64, mimeType: 'image/jpeg' }),
       });
 
-      saveEntry(result, { duration: data.primaryDuration, hasVisualMedia });
-      setScreen(SCREENS.RESULTS);
-    } catch (err) {
-      console.error('[App] guided diagnosis failed:', err);
-      setError(`Diagnosis failed: ${err.message}`);
-      setScreen(SCREENS.HOME);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleInfo, location]);
-
-  // ── Simple recording flow ───────────────────────────────────────────────────
-  const handleStopRecording = useCallback(async () => {
-    setScreen(SCREENS.ANALYZING);
-    try {
-      // Capture audio + OBD2 sensors in parallel (different hardware — no conflict)
-      const [audioResult, sensorData] = await Promise.all([
-        audioService.stop(),
-        obd2Connected
-          ? obd2Service.readAllSensors().catch(() => null)
-          : Promise.resolve(null),
-      ]);
-
-      const { description, duration } = audioResult;
-      const snap          = mediaData;
-      const hasVisualMedia = snap.photos.length > 0 || snap.videoFrames.length > 0;
-
-      // Fault codes are read sequentially after sensors (same BLE channel)
-      let obd2Data = undefined;
-      if (sensorData) {
-        const faultCodes = await obd2Service.readFaultCodes().catch(() => []);
-        obd2Data = { sensors: sensorData, faultCodes };
+      if (res.status === 422) {
+        const body = await res.json();
+        setVehiclePhoto(null);
+        setVehiclePhotoError(body.error || 'No vehicle detected');
+      } else if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error('[photo] API error:', body.error);
+        // Keep photo — just without analysis
+      } else {
+        const { result } = await res.json();
+        setVehiclePhoto({ dataUrl: compressed, analysis: result });
       }
-
-      const result = await diagnose({
-        description,
-        duration,
-        vehicleInfo:     vehicleInfo.make ? vehicleInfo : undefined,
-        textDescription: snap.textDescription || undefined,
-        images:          snap.photos.map(p => ({ base64: p.base64, mediaType: p.mediaType || 'image/jpeg' })),
-        videoFrames:     snap.videoFrames,
-        obd2Data,
-      });
-
-      saveEntry(result, { duration, hasVisualMedia });
-      setMediaData(prev => ({ ...prev, photos: [], videoFrames: [], videoName: '' }));
-      setScreen(SCREENS.RESULTS);
     } catch (err) {
-      console.error('[App] diagnosis failed:', err);
-      setError(`Diagnosis failed: ${err.message}`);
-      setScreen(SCREENS.HOME);
+      console.error('[photo]', err.message);
+      // Keep photo if we already set it — analysis is optional
+    } finally {
+      setVehiclePhotoLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleInfo, location, mediaData, obd2Connected]);
-
-  const handleCancelRecording = useCallback(async () => {
-    await audioService.cancel();
-    setScreen(SCREENS.HOME);
   }, []);
 
-  // ── Results navigation ──────────────────────────────────────────────────────
-  const handleDiagnoseAgain = useCallback(() => {
-    setDiagnosis(null);
-    setError(null);
-    setScreen(SCREENS.HOME);
+  const handleVehiclePhotoRemove = useCallback(() => {
+    setVehiclePhoto(null);
+    setVehiclePhotoError(null);
   }, []);
 
-  const handleViewHistory = useCallback((entry) => {
-    setDiagnosis(entry);
-    setScreen(SCREENS.RESULTS);
+  // ── Maintenance helpers ────────────────────────────────────────────────────
+  const handleMaintenanceUpdate = useCallback((key, updates) => {
+    setMaintenanceSchedule(prev => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), ...updates },
+    }));
   }, []);
 
-  // ── Location inline update from ResultsScreen ───────────────────────────────
-  const handleSetLocation = useCallback((loc) => {
-    setLocation(loc);
-    setDiagnosis(prev => prev ? { ...prev, location: loc || null } : prev);
+  const handleMaintenanceReset = useCallback((vehicleDefaults) => {
+    setMaintenanceSchedule(prev => {
+      const next = { ...prev };
+      for (const [key, val] of Object.entries(vehicleDefaults)) {
+        next[key] = { ...(prev[key] || {}), intervalKm: val.intervalKm };
+      }
+      return next;
+    });
   }, []);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Service record helpers ─────────────────────────────────────────────────
+  const handleAddServiceRecord = useCallback((record) => {
+    setServiceRecords(prev => [record, ...prev]);
+    // Also update maintenance schedule lastDate/lastKm for matching service types
+    const keyMap = {
+      'Oil Change':              'oil',
+      'Tire Rotation':           'tires',
+      'Brake Pad Replacement':   'brakes',
+      'Brake Rotor Replacement': 'brakes',
+      'Air Filter':              'airFilter',
+      'Cabin Air Filter':        'cabinFilter',
+      'Spark Plugs':             'sparkPlugs',
+      'Coolant Flush':           'coolant',
+      'Transmission Fluid':      'transmissionFluid',
+      'Battery Replacement':     'battery',
+      'Serpentine Belt':         'serpentineBelt',
+    };
+    for (const svc of (record.services || [])) {
+      const mKey = keyMap[svc.type];
+      if (mKey) {
+        setMaintenanceSchedule(prev => ({
+          ...prev,
+          [mKey]: {
+            ...(prev[mKey] || {}),
+            lastDate: record.date || prev[mKey]?.lastDate,
+            lastKm:   record.mileageKm || prev[mKey]?.lastKm,
+          },
+        }));
+      }
+    }
+  }, []);
+
+  const handleDeleteServiceRecord = useCallback((id) => {
+    setServiceRecords(prev => prev.filter(r => r.id !== id));
+  }, []);
+
+  // ── Clear all ──────────────────────────────────────────────────────────────
+  const handleClearAll = useCallback(() => {
+    setRecentDiagnoses([]);
+    setMaintenanceSchedule(DEFAULT_MAINTENANCE);
+    setServiceRecords([]);
+    setVehiclePhoto(null);
+    setVehiclePhotoError(null);
+    setVehicleInfo({
+      year: '', make: '', model: '', trim: '', nickname: '', vehicleColor: '',
+      odometer: '', odometerUnit: 'km', postalCode: '',
+      licensePlate: '', vin: '', purchaseDate: '',
+    });
+    setLocation('');
+    setLocationCoords(null);
+  }, []);
+
+  // ── FAB visibility ─────────────────────────────────────────────────────────
+  const showFAB = ['home', 'alerts', 'maintenance'].includes(activeTab) && !diagnoseOpen && !mechanicScreen;
+
   return (
-    <>
-      {screen === SCREENS.HOME && (
-        <HomeScreen
-          onStartGuided={handleStartGuided}
-          recentDiagnoses={recentDiagnoses}
-          onViewHistory={handleViewHistory}
-          error={error}
+    <div className="app" style={{ display: 'flex', flexDirection: 'column', minHeight: '100svh' }}>
+      {/* ── Tab content ── */}
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '72px' }}>
+        {activeTab === 'home' && (
+          <HomeTab
+            vehicleInfo={vehicleInfo}
+            onVehicleInfoChange={handleVehicleInfoChange}
+            liveData={liveData}
+            faultCodes={faultCodes}
+            obd2Connected={obd2Connected}
+            obd2DeviceName={obd2DeviceName}
+            obd2Connecting={obd2Connecting}
+            onObd2Connect={handleConnectScanner}
+            onObd2ConnectMock={handleConnectMock}
+            onObd2Disconnect={handleDisconnectScanner}
+            recentDiagnoses={recentDiagnoses}
+            units={units}
+            vehiclePhoto={vehiclePhoto}
+            vehiclePhotoLoading={vehiclePhotoLoading}
+            vehiclePhotoError={vehiclePhotoError}
+            onPhotoFileSelect={handleVehiclePhotoSelect}
+            onPhotoRemove={handleVehiclePhotoRemove}
+            onFindMechanic={() => handleOpenMechanic(null)}
+          />
+        )}
+        {activeTab === 'live' && (
+          <LiveTab
+            liveData={liveData}
+            faultCodes={faultCodes}
+            obd2Connected={obd2Connected}
+            obd2DeviceName={obd2DeviceName}
+            obd2Connecting={obd2Connecting}
+            onObd2Connect={handleConnectScanner}
+            onObd2ConnectMock={handleConnectMock}
+            onObd2Disconnect={handleDisconnectScanner}
+            mockScenarioIdx={mockScenarioIdx}
+            units={units}
+          />
+        )}
+        {activeTab === 'maintenance' && (
+          <MaintenanceTab
+            schedule={maintenanceSchedule}
+            onUpdate={handleMaintenanceUpdate}
+            onReset={handleMaintenanceReset}
+            vehicleInfo={vehicleInfo}
+            units={units}
+            serviceRecords={serviceRecords}
+            onAddServiceRecord={handleAddServiceRecord}
+            onDeleteServiceRecord={handleDeleteServiceRecord}
+          />
+        )}
+        {activeTab === 'alerts' && (
+          <AlertsTab
+            faultCodes={faultCodes}
+            recentDiagnoses={recentDiagnoses}
+            onClearFaults={handleDisconnectScanner}
+          />
+        )}
+        {activeTab === 'vehicle' && (
+          <VehicleTab
+            vehicleInfo={vehicleInfo}
+            onVehicleInfoChange={handleVehicleInfoChange}
+            location={location}
+            onLocationChange={setLocation}
+            onLocationCoordsChange={setLocationCoords}
+            recentDiagnoses={recentDiagnoses}
+            units={units}
+            onUnitsChange={setUnits}
+            obd2Connected={obd2Connected}
+            obd2DeviceName={obd2DeviceName}
+            onObd2Disconnect={handleDisconnectScanner}
+            onClearAll={handleClearAll}
+            vehiclePhoto={vehiclePhoto}
+            vehiclePhotoLoading={vehiclePhotoLoading}
+            onPhotoFileSelect={handleVehiclePhotoSelect}
+            onPhotoRemove={handleVehiclePhotoRemove}
+          />
+        )}
+      </div>
+
+      {/* ── Tab bar ── */}
+      <TabBar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        showFAB={showFAB}
+        onDiagnosePress={() => setDiagnoseOpen(true)}
+        alertCount={faultCodes.length}
+      />
+
+      {/* ── Diagnose modal ── */}
+      {diagnoseOpen && (
+        <DiagnoseModal
+          isOpen={diagnoseOpen}
+          onClose={() => setDiagnoseOpen(false)}
           vehicleInfo={vehicleInfo}
-          onVehicleInfoChange={handleVehicleInfoChange}
           location={location}
           onLocationChange={setLocation}
-          mediaData={mediaData}
-          onMediaDataChange={handleMediaDataChange}
           obd2Connected={obd2Connected}
-          obd2DeviceName={obd2DeviceName}
-          obd2Connecting={obd2Connecting}
-          onObd2Connect={handleConnectScanner}
-          onObd2ConnectMock={handleConnectMock}
-          onObd2Disconnect={handleDisconnectScanner}
+          onDiagnosisComplete={handleDiagnosisComplete}
+          onFindMechanic={handleOpenMechanic}
         />
       )}
-      {screen === SCREENS.GUIDED && (
-        <GuidedScreen
-          initialText={mediaData.textDescription}
-          obd2Connected={obd2Connected}
-          onComplete={handleGuidedComplete}
-          onSkipToRecord={handleSkipToRecord}
-          onBack={() => setScreen(SCREENS.HOME)}
+
+      {/* ── Mechanic screen overlay ── */}
+      {mechanicScreen && (
+        <MechanicScreen
+          location={location}
+          locationCoords={locationCoords}
+          vehicleInfo={vehicleInfo}
+          diagnosis={mechanicScreen.diagnosis}
+          onBack={handleCloseMechanic}
         />
       )}
-      {screen === SCREENS.RECORDING && (
-        <RecordingScreen onStop={handleStopRecording} onCancel={handleCancelRecording} />
-      )}
-      {screen === SCREENS.ANALYZING && (
-        <AnalyzingScreen />
-      )}
-      {screen === SCREENS.RESULTS && diagnosis && (
-        <ResultsScreen
-          diagnosis={diagnosis}
-          onDiagnoseAgain={handleDiagnoseAgain}
-          onSetLocation={handleSetLocation}
-        />
-      )}
-    </>
+    </div>
   );
 }

@@ -1,0 +1,191 @@
+/* ── Address Autocomplete ─────────────────────────────────────────────────── */
+
+.addr-auto {
+  position: relative;
+  width: 100%;
+}
+
+/* ── Input wrapper ────────────────────────────────────────────────────────── */
+.addr-auto__input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.addr-auto__icon-search {
+  position: absolute;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.addr-auto__input {
+  width: 100%;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-primary);
+  padding: 0 26px 0 20px;
+  text-align: right;
+  min-width: 0;
+}
+
+.addr-auto__input::placeholder { color: var(--text-muted); }
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+.addr-auto__spinner {
+  position: absolute;
+  right: 26px;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(255,255,255,0.12);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: addr-spin 0.65s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes addr-spin { to { transform: rotate(360deg); } }
+
+/* ── Clear button ─────────────────────────────────────────────────────────── */
+.addr-auto__clear {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  border-radius: 50%;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.addr-auto__clear:hover { color: var(--text-secondary); background: var(--glass); }
+.addr-auto__clear svg { width: 11px; height: 11px; }
+
+/* ── Dropdown ─────────────────────────────────────────────────────────────── */
+.addr-auto__dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -130px;
+  right: 0;
+  min-width: 290px;
+  z-index: 200;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  list-style: none;
+  padding: 4px 0;
+  animation: addr-drop-in 0.14s ease-out;
+}
+
+@keyframes addr-drop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Option item — two-line layout ────────────────────────────────────────── */
+.addr-auto__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.addr-auto__option:hover,
+.addr-auto__option--active { background: var(--bg-card-hover); }
+
+.addr-auto__option-flag {
+  font-size: 16px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.addr-auto__option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.addr-auto__option-primary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addr-auto__option--active .addr-auto__option-primary,
+.addr-auto__option:hover   .addr-auto__option-primary {
+  color: var(--text-primary);
+}
+
+.addr-auto__option-secondary {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── USA toggle ───────────────────────────────────────────────────────────── */
+.addr-auto__usa-row {
+  padding: 6px 10px 4px;
+  border-top: 1px solid var(--divider);
+}
+
+.addr-auto__usa-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  text-align: left;
+}
+
+.addr-auto__usa-btn:hover {
+  background: var(--glass);
+  color: var(--text-secondary);
+}
+
+.addr-auto__usa-btn--active {
+  background: rgba(10,132,255,0.08);
+  border-color: rgba(10,132,255,0.25);
+  color: var(--accent-bright);
+}
+
+/* ── Nominatim attribution (required by ToS) ──────────────────────────────── */
+.addr-auto__attribution {
+  padding: 5px 14px 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--divider);
+  text-align: right;
+  pointer-events: none;
+  opacity: 0.5;
+}

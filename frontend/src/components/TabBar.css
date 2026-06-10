@@ -1,0 +1,128 @@
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: stretch;
+  background: rgba(17,18,20,0.94);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  height: 72px;
+}
+
+.tab-bar__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.18s;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  position: relative;
+}
+
+.tab-bar__item:active { opacity: 0.65; }
+
+.tab-bar__item--active { color: var(--accent); }
+
+.tab-bar__icon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-bar__icon svg {
+  width: 24px;
+  height: 24px;
+  transition: transform 0.18s ease;
+}
+
+.tab-bar__item--active .tab-bar__icon svg {
+  transform: translateY(-1px);
+}
+
+.tab-bar__label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  transition: color 0.18s;
+}
+
+/* ── Badge ───────────────────────────────────────────────────────────────── */
+.tab-bar__badge {
+  position: absolute;
+  top: -5px;
+  right: -8px;
+  background: var(--danger);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border: 2px solid var(--bg-primary);
+}
+
+/* ── Diagnose pill FAB ───────────────────────────────────────────────────── */
+.tab-bar__fab {
+  position: fixed;
+  bottom: 84px;          /* 72px tab bar + 12px gap */
+  right: 18px;
+  z-index: 101;
+  height: 48px;
+  padding: 0 22px 0 18px;
+  border-radius: 24px;
+  border: 1.5px solid var(--accent);
+  cursor: pointer;
+  background: rgba(10,132,255,0.1);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'Inter', -apple-system, sans-serif;
+  letter-spacing: -0.2px;
+  box-shadow:
+    0 4px 20px rgba(10,132,255,0.22),
+    0 1px 4px rgba(0,0,0,0.3);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease, background 0.2s, box-shadow 0.2s;
+  animation: fab-appear 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tab-bar__fab:hover {
+  background: rgba(10,132,255,0.18);
+  box-shadow: 0 6px 24px rgba(10,132,255,0.3), 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.tab-bar__fab:active { transform: scale(0.95); }
+
+.tab-bar__fab svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.5;
+  flex-shrink: 0;
+}
+
+@keyframes fab-appear {
+  from { opacity: 0; transform: translateY(8px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}

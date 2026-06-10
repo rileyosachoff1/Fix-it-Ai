@@ -1,53 +1,84 @@
-/* ── Reset & base ───────────────────────────────────────────────────────────── */
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:          #0a0a0a;
-  --surface:     #111111;
-  --surface2:    #1a1a1a;
-  --surface3:    #222222;
-  --border:      #2a2a2a;
-  --border2:     #333333;
-  --accent:      #ff6b00;
-  --accent-l:    #ff8c33;
-  --accent-d:    rgba(255, 107, 0, 0.18);
-  --accent-d2:   rgba(255, 107, 0, 0.08);
-  --text:        #ffffff;
-  --text2:       #aaaaaa;
-  --text3:       #666666;
-  --success:     #00cc66;
-  --success-d:   rgba(0, 204, 102, 0.15);
-  --warning:     #ffb800;
-  --warning-d:   rgba(255, 184, 0, 0.15);
-  --danger:      #ff3b30;
-  --danger-d:    rgba(255, 59, 48, 0.15);
-  --radius:      12px;
-  --radius-lg:   20px;
-  --shadow:      0 4px 24px rgba(0,0,0,0.5);
+  /* ── Apple/Tesla dark system ─────────────────────────────────────────────── */
+  --bg-primary:    #111214;
+  --bg-card:       #1c1c1e;
+  --bg-card-hover: #242426;
+  --bg-elevated:   #2c2c2e;
+  --bg-input:      #1c1c1e;
+
+  /* ── Accent — iOS blue ────────────────────────────────────────────────────── */
+  --accent:        #0a84ff;
+  --accent-bright: #409cff;
+  --accent-glow:   rgba(10,132,255,0.22);
+  --accent-muted:  rgba(10,132,255,0.12);
+
+  /* ── Semantic ─────────────────────────────────────────────────────────────── */
+  --success:       #30d158;
+  --warning:       #ff9f0a;
+  --danger:        #ff453a;
+  --success-muted: rgba(48,209,88,0.15);
+  --warning-muted: rgba(255,159,10,0.15);
+  --danger-muted:  rgba(255,69,58,0.15);
+
+  /* ── Text hierarchy ───────────────────────────────────────────────────────── */
+  --text-primary:   #ffffff;
+  --text-secondary: rgba(235,235,245,0.80);
+  --text-tertiary:  rgba(235,235,245,0.60);
+  --text-muted:     rgba(235,235,245,0.30);
+
+  /* ── Borders & surfaces ───────────────────────────────────────────────────── */
+  --border:        rgba(255,255,255,0.10);
+  --border-strong: rgba(255,255,255,0.18);
+  --divider:       rgba(255,255,255,0.06);
+  --glass:         rgba(255,255,255,0.06);
+
+  /* ── Layout tokens ────────────────────────────────────────────────────────── */
+  --card-radius:   18px;
+  --card-shadow:   0 2px 20px rgba(0,0,0,0.45);
+  --card-padding:  20px;
+
+  /* ── Legacy aliases — backward compat for DiagnoseModal ──────────────────── */
+  --bg:         var(--bg-primary);
+  --surface:    var(--bg-card);
+  --surface2:   var(--bg-elevated);
+  --surface3:   #2c2c2e;
+  --border2:    rgba(255,255,255,0.14);
+  --text:       var(--text-primary);
+  --text2:      var(--text-secondary);
+  --text3:      var(--text-tertiary);
+  --radius:     14px;
+  --radius-lg:  22px;
+  --shadow:     var(--card-shadow);
+  --accent-l:   var(--accent-bright);
+  --accent-d:   var(--accent-glow);
+  --accent-d2:  var(--accent-muted);
+  --success-d:  var(--success-muted);
+  --warning-d:  var(--warning-muted);
+  --danger-d:   var(--danger-muted);
 }
 
 html { scroll-behavior: smooth; }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  min-height: 100vh;
+  min-height: 100svh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior: none;
 }
 
-#root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+#root { min-height: 100svh; }
 
-/* ── Scrollbar ───────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: var(--surface); }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
-/* ── Utility ─────────────────────────────────────────────────────────────────── */
+/* ── Utility ───────────────────────────────────────────────────────────────── */
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.tabular { font-variant-numeric: tabular-nums; }

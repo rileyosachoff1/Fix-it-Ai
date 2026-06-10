@@ -1,8 +1,11 @@
 'use strict';
 require('dotenv').config();
 
-const express = require('express');
-const cors    = require('cors');
+const express  = require('express');
+const cors     = require('cors');
+const fs       = require('fs');
+const path     = require('path');
+const https    = require('https');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const app  = express();
@@ -295,7 +298,9 @@ function buildUserMessage({ audioDescription, vehicleInfo, textDescription, imag
   const parts = ['=== VEHICLE DIAGNOSIS REQUEST ==='];
 
   if (vehicleInfo?.make) {
-    parts.push(`\nVEHICLE: ${[vehicleInfo.year, vehicleInfo.make, vehicleInfo.model].filter(Boolean).join(' ')}`);
+    const vehicleStr = [vehicleInfo.year, vehicleInfo.make, vehicleInfo.model].filter(Boolean).join(' ');
+    const trimStr    = vehicleInfo.trim ? ` (${vehicleInfo.trim} trim)` : '';
+    parts.push(`\nVEHICLE: ${vehicleStr}${trimStr}`);
   }
 
   // Primary recording — label it if additional recordings also exist
@@ -420,7 +425,9 @@ app.post('/api/diagnose', async (req, res) => {
 
     if (!description) return res.status(400).json({ error: 'description required' });
 
-    const vehicle  = vehicleInfo?.make ? `${vehicleInfo.year} ${vehicleInfo.make} ${vehicleInfo.model}` : 'unknown';
+    const vehicle  = vehicleInfo?.make
+      ? [vehicleInfo.year, vehicleInfo.make, vehicleInfo.model, vehicleInfo.trim].filter(Boolean).join(' ')
+      : 'unknown';
     const recCount = 1 + additionalRecordings.length;
     const dtcCount = obd2Data?.faultCodes?.length ?? 0;
     console.log(`[diagnose] ${duration?.toFixed?.(1) ?? '?'}s · vehicle: ${vehicle} · recordings: ${recCount} · images: ${images.length} · frames: ${videoFrames.length}${obd2Data ? ` · OBD2: ${Object.keys(obd2Data.sensors || {}).length} sensors, ${dtcCount} DTCs` : ''}`);
@@ -438,6 +445,419 @@ app.post('/api/diagnose', async (req, res) => {
     res.json({ ok: true, result });
   } catch (err) {
     console.error('[diagnose]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Service record OCR ────────────────────────────────────────────────────────
+const MOCK_SERVICE_RECORD = {
+  date:       new Date().toISOString().split('T')[0],
+  shop:       'Demo Auto Centre',
+  mileage:    85420,
+  services: [
+    { type: 'Oil Change',     details: 'Full synthetic 5W-30, 5L', cost: 94.99 },
+    { type: 'Tire Rotation',  details: 'All four corners',         cost: 35.00 },
+    { type: 'Air Filter',     details: 'OEM replacement',          cost: 28.50 },
+  ],
+  totalCost:  158.49,
+  confidence: 'high',
+  notes:      null,
+};
+
+app.post('/api/read-service-record', async (req, res) => {
+  try {
+    const { image, mimeType = 'image/jpeg' } = req.body;
+    if (!image) return res.status(400).json({ error: 'image (base64) required' });
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey || !apiKey.trim()) {
+      await new Promise(r => setTimeout(r, 1500));
+      return res.json({ ok: true, result: MOCK_SERVICE_RECORD });
+    }
+
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1200,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: image },
+          },
+          {
+            type: 'text',
+            text: `Extract vehicle service record information from this receipt or invoice image.
+Return ONLY a raw JSON object with NO markdown, code fences, or extra text.
+
+{
+  "date":       "YYYY-MM-DD or null",
+  "shop":       "shop/dealership name or null",
+  "mileage":    number (odometer reading) or null,
+  "services":   [{"type":"service type","details":"brief notes","cost":number or null}],
+  "totalCost":  number or null,
+  "confidence": "high" | "medium" | "low",
+  "notes":      "any other relevant info or null"
+}
+
+If a field cannot be found in the image, use null.
+The 'services' array should have one entry per distinct service performed.
+Common service types: Oil Change, Tire Rotation, Brake Pad Replacement, Air Filter, Cabin Air Filter, Spark Plugs, Coolant Flush, Transmission Fluid, Battery Replacement, Wheel Alignment, Inspection, etc.
+Return only the JSON object, nothing else.`,
+          },
+        ],
+      }],
+    });
+
+    const text = message.content[0].text.trim();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) result = JSON.parse(m[0]);
+      else throw new Error('Claude returned non-JSON OCR result');
+    }
+
+    console.log(`[service-record] OCR confidence=${result.confidence} services=${result.services?.length ?? 0}`);
+    res.json({ ok: true, result });
+  } catch (err) {
+    console.error('[service-record]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Vehicle photo analysis ────────────────────────────────────────────────────
+app.post('/api/analyze-vehicle-photo', async (req, res) => {
+  try {
+    const { image, mimeType = 'image/jpeg' } = req.body;
+    if (!image) return res.status(400).json({ error: 'image (base64) required' });
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+
+    // Demo mode — accept photo without AI analysis
+    if (!apiKey || !apiKey.trim()) {
+      return res.json({ ok: true, result: { isVehicle: true, description: 'Your vehicle', confidence: 'high' } });
+    }
+
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: image },
+          },
+          {
+            type: 'text',
+            text: `Analyze this photo. Return ONLY a raw JSON object — no markdown, no code fences, no extra text:
+{
+  "isVehicle": boolean,
+  "make": "manufacturer name or null",
+  "model": "model name or null",
+  "year": "approximate year or null",
+  "color": "color name or null",
+  "bodyStyle": "sedan|suv|truck|sports|van|hatchback or null",
+  "description": "brief 1-sentence description",
+  "confidence": "high|medium|low"
+}
+If the photo does not clearly show a vehicle, set isVehicle to false.`,
+          },
+        ],
+      }],
+    });
+
+    const raw = message.content[0].text.trim();
+    let result;
+    try {
+      result = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) result = JSON.parse(m[0]);
+      else throw new Error('Claude returned non-JSON for photo analysis');
+    }
+
+    if (!result.isVehicle) {
+      return res.status(422).json({
+        error: 'No vehicle detected — please try a clearer photo of your car',
+        result,
+      });
+    }
+
+    const detected = [result.year, result.make, result.model].filter(Boolean).join(' ');
+    console.log(`[vehicle-photo] ${detected || 'unknown'} · confidence=${result.confidence}`);
+    res.json({ ok: true, result });
+  } catch (err) {
+    console.error('[vehicle-photo]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Mechanic shop helpers ─────────────────────────────────────────────────────
+
+const DATA_DIR = path.join(__dirname, 'data');
+let PARTNER_SHOPS = [];
+try {
+  PARTNER_SHOPS = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'partnerShops.json'), 'utf8'));
+} catch { /* file missing — demo starts with no partners */ }
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+const PROVINCE_TZ = {
+  BC: 'America/Vancouver', YT: 'America/Whitehorse',
+  AB: 'America/Edmonton',  NT: 'America/Yellowknife', SK: 'America/Regina',
+  MB: 'America/Winnipeg',  ON: 'America/Toronto',    QC: 'America/Toronto',
+  NB: 'America/Moncton',   NS: 'America/Halifax',    PE: 'America/Halifax',
+  NL: 'America/St_Johns',  NU: 'America/Iqaluit',
+};
+
+const DAY_MAP = { Monday:'mon', Tuesday:'tue', Wednesday:'wed', Thursday:'thu', Friday:'fri', Saturday:'sat', Sunday:'sun' };
+
+function getTodayHoursForShop(shop) {
+  const tz = PROVINCE_TZ[shop.province] || 'America/Toronto';
+  const now = new Date();
+  const weekdayLong = new Intl.DateTimeFormat('en-CA', { timeZone: tz, weekday: 'long' }).format(now);
+  const dayKey = DAY_MAP[weekdayLong];
+  return dayKey ? (shop.hours?.[dayKey] ?? null) : null;
+}
+
+function computeIsOpenNow(shop) {
+  const todayHours = getTodayHoursForShop(shop);
+  if (!todayHours || todayHours === 'Closed') return false;
+
+  const tz = PROVINCE_TZ[shop.province] || 'America/Toronto';
+  const now = new Date();
+  const timeStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+  const [curH, curM] = timeStr.split(':').map(Number);
+  const curMins = curH * 60 + curM;
+
+  const m = todayHours.match(/(\d+):(\d+)\s*(AM|PM)\s*[–\-]\s*(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return null;
+
+  let [, oH, oM, oAmPm, cH, cM, cAmPm] = m;
+  oH = parseInt(oH); oM = parseInt(oM); cH = parseInt(cH); cM = parseInt(cM);
+  if (oAmPm.toUpperCase() === 'PM' && oH !== 12) oH += 12;
+  if (oAmPm.toUpperCase() === 'AM' && oH === 12) oH = 0;
+  if (cAmPm.toUpperCase() === 'PM' && cH !== 12) cH += 12;
+  if (cAmPm.toUpperCase() === 'AM' && cH === 12) cH = 0;
+
+  return curMins >= (oH * 60 + oM) && curMins < (cH * 60 + cM);
+}
+
+function isDuplicateOfPartner(osmName, osmLat, osmLon, partners) {
+  if (!osmName) return false;
+  const normalize = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  const osmWords = normalize(osmName).split(/\s+/).filter(w => w.length > 3);
+
+  for (const p of partners) {
+    const dist = haversineKm(osmLat, osmLon, p.lat, p.lon);
+    if (dist < 0.05) return true;          // within 50m — definitely same
+    if (dist > 0.2) continue;              // too far to be same shop
+    const pWords = normalize(p.name).split(/\s+/).filter(w => w.length > 3);
+    if (osmWords.some(w => pWords.includes(w))) return true;
+  }
+  return false;
+}
+
+function fetchOverpass(query) {
+  return new Promise((resolve, reject) => {
+    const encoded = encodeURIComponent(query);
+    const url = `https://overpass-api.de/api/interpreter?data=${encoded}`;
+    https.get(url, { headers: { 'User-Agent': 'FixItAI/1.0' } }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); }
+        catch { reject(new Error('Overpass returned non-JSON')); }
+      });
+    }).on('error', reject);
+  });
+}
+
+async function fetchNearbyOSM(lat, lon, radiusKm) {
+  const radiusM = Math.round(radiusKm * 1000);
+  const query = `[out:json][timeout:20];(node["shop"="car_repair"](around:${radiusM},${lat},${lon});way["shop"="car_repair"](around:${radiusM},${lat},${lon});node["amenity"="car_repair"](around:${radiusM},${lat},${lon});node["craft"="car_mechanic"](around:${radiusM},${lat},${lon});node["shop"="auto_repair"](around:${radiusM},${lat},${lon}););out center;`;
+  const data = await fetchOverpass(query);
+  return data.elements || [];
+}
+
+function distanceLabel(km) {
+  if (km < 1) return `${Math.round(km * 1000)} m away`;
+  return `${km.toFixed(1)} km away`;
+}
+
+function mapsUrl(lat, lon) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+}
+
+function appendToJsonFile(filePath, entry) {
+  let arr = [];
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) arr = [];
+  } catch { /* file missing or corrupt — start fresh */ }
+  arr.push(entry);
+  fs.writeFileSync(filePath, JSON.stringify(arr, null, 2), 'utf8');
+}
+
+// ── GET /api/shops ─────────────────────────────────────────────────────────────
+app.get('/api/shops', async (req, res) => {
+  try {
+    const lat      = parseFloat(req.query.lat);
+    const lon      = parseFloat(req.query.lon);
+    const radiusKm = Math.min(100, Math.max(1, parseFloat(req.query.radiusKm) || 25));
+
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ error: 'lat and lon are required' });
+    }
+
+    // Partner shops — instant, no external call
+    const partners = PARTNER_SHOPS
+      .map(shop => {
+        const dKm = Math.round(haversineKm(lat, lon, shop.lat, shop.lon) * 10) / 10;
+        return {
+          ...shop,
+          isPartner:     true,
+          distanceKm:    dKm,
+          distanceLabel: distanceLabel(dKm),
+          mapsUrl:       mapsUrl(shop.lat, shop.lon),
+          isOpenNow:     computeIsOpenNow(shop),
+          todayHours:    getTodayHoursForShop(shop),
+        };
+      })
+      .filter(s => s.distanceKm <= radiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    console.log(`[shops] lat=${lat} lon=${lon} r=${radiusKm}km → ${partners.length} partners`);
+
+    // OSM nearby shops — race against 5-second timeout
+    let nearby = [];
+    try {
+      const osmElements = await Promise.race([
+        fetchNearbyOSM(lat, lon, radiusKm),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Overpass timeout')), 5000)),
+      ]);
+
+      nearby = osmElements
+        .filter(el => {
+          const sLat = el.lat ?? el.center?.lat;
+          const sLon = el.lon ?? el.center?.lon;
+          if (!sLat || !sLon || !el.tags?.name) return false;
+          return !isDuplicateOfPartner(el.tags.name, sLat, sLon, partners);
+        })
+        .map(el => {
+          const sLat = el.lat ?? el.center.lat;
+          const sLon = el.lon ?? el.center.lon;
+          const dKm  = Math.round(haversineKm(lat, lon, sLat, sLon) * 10) / 10;
+          const addrParts = [el.tags['addr:housenumber'], el.tags['addr:street']].filter(Boolean);
+          return {
+            id:            `osm_${el.id}`,
+            isPartner:     false,
+            name:          el.tags.name,
+            address:       addrParts.join(' ') || null,
+            city:          el.tags['addr:city'] || null,
+            phone:         el.tags.phone || el.tags['contact:phone'] || null,
+            rating:        null,
+            services:      [],
+            todayHours:    null,
+            isOpenNow:     null,
+            lat:           sLat,
+            lon:           sLon,
+            distanceKm:    dKm,
+            distanceLabel: distanceLabel(dKm),
+            mapsUrl:       mapsUrl(sLat, sLon),
+            source:        'osm',
+          };
+        })
+        .filter(s => s.distanceKm <= radiusKm)
+        .sort((a, b) => a.distanceKm - b.distanceKm)
+        .slice(0, 15);
+
+      console.log(`[shops] OSM returned ${nearby.length} nearby shops`);
+    } catch (osmErr) {
+      console.warn(`[shops] OSM skipped: ${osmErr.message}`);
+    }
+
+    res.json({
+      ok:               true,
+      partners,
+      nearby,
+      total:            partners.length + nearby.length,
+      radiusKm,
+      customerLocation: { lat, lon },
+      loadedAt:         new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[shops]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/log-referral ────────────────────────────────────────────────────
+app.post('/api/log-referral', (req, res) => {
+  try {
+    const {
+      shopId, shopName, action,
+      // spec fields
+      customerCity, customerProvince, diagnosisPrimary,
+      // legacy fields (from earlier version)
+      vehicleInfo, diagnosisSummary,
+    } = req.body;
+    if (!shopId || !action) return res.status(400).json({ error: 'shopId and action required' });
+
+    const referralId = `ref-${shopId}-${Date.now()}`;
+    const entry = {
+      referralId,
+      shopId,
+      shopName:         shopName || null,
+      action,
+      customerCity:     customerCity || null,
+      customerProvince: customerProvince || null,
+      diagnosisPrimary: diagnosisPrimary || diagnosisSummary || null,
+      vehicleInfo:      vehicleInfo || null,
+      timestamp:        new Date().toISOString(),
+    };
+
+    appendToJsonFile(path.join(DATA_DIR, 'referralLog.json'), entry);
+    console.log(`[referral] ${action} → ${shopName} (${referralId})`);
+    res.json({ success: true, referralId });
+  } catch (err) {
+    console.error('[log-referral]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/partner-inquiry ─────────────────────────────────────────────────
+app.post('/api/partner-inquiry', (req, res) => {
+  try {
+    const { shopName, contactName, phone, email, city, province, notes } = req.body;
+    if (!shopName) return res.status(400).json({ error: 'shopName required' });
+
+    const entry = {
+      shopName, contactName: contactName || null,
+      phone: phone || null, email: email || null,
+      city: city || null, province: province || null,
+      notes: notes || null,
+      timestamp: new Date().toISOString(),
+    };
+
+    appendToJsonFile(path.join(DATA_DIR, 'partnerInquiries.json'), entry);
+    console.log(`[inquiry] ${shopName} from ${city || '?'}, ${province || '?'}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[partner-inquiry]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
