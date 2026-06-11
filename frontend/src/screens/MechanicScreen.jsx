@@ -1,11 +1,40 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { findShopsNearLocation, logReferral, submitPartnerInquiry, buildDiagnosisMessage } from '../services/mechanicService.js';
 import { searchAddress } from '../services/addressService.js';
+import { getDtcInfo } from '../data/dtcCatalog.js';
 import './MechanicScreen.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function isMobileDevice() {
   return /iPhone|Android|Mobile|iPad/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
+}
+
+// Quick "what do you need help with?" filter chips
+const SERVICE_FILTERS = ['Oil Change', 'Brakes', 'Engine', 'Tires', 'Electrical', 'Full Inspection'];
+
+// Keywords used to match a filter against a shop's services list
+const FILTER_KEYWORDS = {
+  'Oil Change':      ['oil'],
+  'Brakes':          ['brake'],
+  'Engine':          ['engine', 'diagnostic'],
+  'Tires':           ['tire', 'wheel'],
+  'Electrical':      ['electric', 'battery'],
+  'Full Inspection': ['inspection'],
+};
+
+function shopMatchesFilter(shop, filter) {
+  if (!filter) return true;
+  const services = (shop.services ?? shop.specialties ?? []).map(s => String(s).toLowerCase());
+  if (!services.length) return true; // no service data (OSM) — keep visible
+  const keywords = FILTER_KEYWORDS[filter] || [filter.toLowerCase()];
+  return services.some(s => keywords.some(k => s.includes(k)));
+}
+
+function shopSpecializesInMake(shop, make) {
+  if (!make) return false;
+  const m = make.toLowerCase();
+  const lists = [...(shop.services ?? []), ...(shop.specialties ?? []), ...(shop.certifications ?? [])];
+  return lists.some(s => String(s).toLowerCase().includes(m));
 }
 
 // ── Star rating display ────────────────────────────────────────────────────────
@@ -50,6 +79,7 @@ function NearbySkeleton() {
 
 // ── Partner shop card ──────────────────────────────────────────────────────────
 function PartnerCard({ shop, diagnosis, vehicleInfo, onSendDiagnosis }) {
+  const specializesInMake = shopSpecializesInMake(shop, vehicleInfo?.make);
   const callUrl = shop.phone ? `tel:${shop.phone}` : null;
   const hasDx   = !!(diagnosis?.primary ?? diagnosis);
 
@@ -133,6 +163,13 @@ function PartnerCard({ shop, diagnosis, vehicleInfo, onSendDiagnosis }) {
           <span className="mech-card__distance-badge">{shop.distanceLabel}</span>
         )}
       </div>
+
+      {/* Make specialization */}
+      {specializesInMake && (
+        <div className="mech-make-badge">
+          🚗 Specializes in {vehicleInfo.make}
+        </div>
+      )}
 
       {/* Service tags */}
       {services.length > 0 && (
@@ -541,7 +578,7 @@ function FilterSheet({ radiusKm, partnersOnly, sortBy, onApply, onClose }) {
 }
 
 // ── Main MechanicScreen ───────────────────────────────────────────────────────
-export default function MechanicScreen({ locationCoords, location, vehicleInfo, diagnosis, onBack }) {
+export default function MechanicScreen({ locationCoords, location, vehicleInfo, diagnosis, dtcContext = null, initialServiceFilter = null, onBack }) {
   // Resolved coordinates
   const [lat,            setLat]            = useState(locationCoords?.lat ?? null);
   const [lon,            setLon]            = useState(locationCoords?.lon ?? null);
@@ -569,6 +606,9 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
   const [inquiryPreFill, setInquiryPreFill] = useState('');
   const [sendSheet,      setSendSheet]      = useState(null);   // { shop, message }
   const [dismissedBanner, setDismissedBanner] = useState(false);
+
+  // "What do you need help with?" quick service filter
+  const [serviceFilter, setServiceFilter] = useState(initialServiceFilter);
 
   // ── Geocode location string if no coords ────────────────────────────────
   useEffect(() => {
@@ -655,9 +695,14 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
     }
   }
 
+  // ── Effective diagnosis context (real diagnosis > DTC > service filter) ──
+  const effectiveDiagnosis = diagnosis
+    || (dtcContext ? { primary: { diagnosis: `${dtcContext.code} — ${dtcContext.description || getDtcInfo(dtcContext.code).name}` } } : null)
+    || (serviceFilter ? { primary: { diagnosis: serviceFilter } } : null);
+
   // ── Send diagnosis ─────────────────────────────────────────────────────
   function handleSendDiagnosis(shop) {
-    const message = buildDiagnosisMessage(diagnosis, vehicleInfo);
+    const message = buildDiagnosisMessage(effectiveDiagnosis, vehicleInfo);
     const mobile  = isMobileDevice();
     const phone   = shop.phone?.replace(/\D/g, '');
 
@@ -678,6 +723,8 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
   const hasDiagnosis  = !!(diagnosis?.primary ?? diagnosis);
   const diagnosisName = (diagnosis?.primary ?? diagnosis)?.diagnosis;
   const hasCoords     = lat != null && lon != null;
+  const dtcInfo       = dtcContext ? getDtcInfo(dtcContext.code) : null;
+  const showFilterChips = !hasDiagnosis && !dtcContext && hasCoords;
 
   function sortShops(arr) {
     if (sortBy === 'rating') {
@@ -686,8 +733,9 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
     return [...arr].sort((a, b) => a.distanceKm - b.distanceKm);
   }
 
-  const displayPartners = shops ? sortShops(shops.partners) : [];
-  const displayNearby   = shops && !partnersOnly ? sortShops(shops.nearby) : [];
+  const activeFilter    = showFilterChips ? serviceFilter : null;
+  const displayPartners = shops ? sortShops(shops.partners.filter(s => shopMatchesFilter(s, activeFilter))) : [];
+  const displayNearby   = shops && !partnersOnly ? sortShops(shops.nearby.filter(s => shopMatchesFilter(s, activeFilter))) : [];
 
   return (
     <div className="mech-screen">
@@ -776,8 +824,26 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
           </div>
         )}
 
+        {/* ── DTC fault-code context banner ── */}
+        {dtcContext && hasCoords && !dismissedBanner && (
+          <div className="mech-dx-banner mech-dx-banner--dtc" role="status">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>
+              Finding mechanics who specialize in <strong>{(dtcContext.description || dtcInfo?.name || dtcContext.code).toLowerCase()}</strong> near you
+              <span className="mech-dx-banner__code"> · {dtcContext.code}</span>
+            </span>
+            <button
+              className="mech-dx-banner__dismiss"
+              onClick={() => setDismissedBanner(true)}
+              aria-label="Dismiss fault code banner"
+            >×</button>
+          </div>
+        )}
+
         {/* ── Diagnosis context banner ── */}
-        {hasDiagnosis && hasCoords && !dismissedBanner && (
+        {hasDiagnosis && !dtcContext && hasCoords && !dismissedBanner && (
           <div className="mech-dx-banner" role="status">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
@@ -788,6 +854,26 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
               onClick={() => setDismissedBanner(true)}
               aria-label="Dismiss diagnosis banner"
             >×</button>
+          </div>
+        )}
+
+        {/* ── Quick service filter chips (no diagnosis context) ── */}
+        {showFilterChips && (
+          <div className="mech-filter-chips-block">
+            <p className="mech-filter-chips-label">What do you need help with?</p>
+            <div className="mech-filter-chips" role="group" aria-label="Service type filter">
+              {SERVICE_FILTERS.map(f => (
+                <button
+                  key={f}
+                  className={`mech-filter-chip${serviceFilter === f ? ' mech-filter-chip--active' : ''}`}
+                  onClick={() => setServiceFilter(prev => prev === f ? null : f)}
+                  aria-pressed={serviceFilter === f}
+                  type="button"
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -840,7 +926,7 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
                   <PartnerCard
                     key={shop.id}
                     shop={shop}
-                    diagnosis={diagnosis}
+                    diagnosis={effectiveDiagnosis}
                     vehicleInfo={vehicleInfo}
                     onSendDiagnosis={handleSendDiagnosis}
                   />

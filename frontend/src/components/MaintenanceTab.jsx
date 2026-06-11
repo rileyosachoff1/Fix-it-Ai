@@ -2,20 +2,7 @@ import { useState } from 'react';
 import './MaintenanceTab.css';
 import { getScheduleForVehicle } from '../data/serviceSchedules.js';
 import ServiceRecordCapture from './ServiceRecordCapture.jsx';
-
-// ── Unit helpers ──────────────────────────────────────────────────────────────
-function kmToDisplay(km, unit) {
-  if (km == null || isNaN(km)) return 0;
-  return unit === 'mi' ? Math.round(km * 0.621371) : Math.round(km);
-}
-function odoToKm(odo, unit) {
-  if (!odo || isNaN(odo)) return 0;
-  return unit === 'mi' ? Math.round(odo * 1.60934) : Math.round(odo);
-}
-function formatInterval(km, unit) {
-  const val = kmToDisplay(km, unit);
-  return `${val >= 1000 ? (val / 1000).toFixed(val % 1000 === 0 ? 0 : 1) + 'k' : val} ${unit}`;
-}
+import { kmToDisplay, odoToKm, formatInterval } from '../utils/units.js';
 
 // ── Progress calculation ───────────────────────────────────────────────────────
 function calcProgress(data, intervalKm, currentOdoKm, odometerUnit) {
@@ -226,6 +213,7 @@ export default function MaintenanceTab({
   serviceRecords = [],
   onAddServiceRecord,
   onDeleteServiceRecord,
+  maintenanceDue = [],
 }) {
   const [editing,     setEditing]     = useState(null);
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -303,6 +291,50 @@ export default function MaintenanceTab({
           Schedule for your {[vehicleInfo.year, vehicleInfo.make, vehicleInfo.model].filter(Boolean).join(' ')}
         </div>
       )}
+
+      {/* ── Maintenance Due ── */}
+      {(() => {
+        const tracked = maintenanceDue.filter(i => i.dueAtKm != null);
+        if (!tracked.length) return null;
+        const statusMeta = {
+          overdue:  { dot: '🔴', cls: 'overdue' },
+          due_soon: { dot: '🟡', cls: 'due' },
+          ok:       { dot: '🟢', cls: 'ok' },
+        };
+        return (
+          <section className="maint-due">
+            <h2 className="maint-section__title maint-due__title">MAINTENANCE DUE</h2>
+            <div className="maint-due__list">
+              {tracked.map((item, i) => {
+                const meta = statusMeta[item.status] || statusMeta.ok;
+                const remainingDisp = kmToDisplay(Math.abs(item.kmRemaining), odometerUnit).toLocaleString();
+                const dueAtDisp = kmToDisplay(item.dueAtKm, odometerUnit).toLocaleString();
+                return (
+                  <button
+                    key={item.key}
+                    className={`maint-due__row maint-due__row--${meta.cls}`}
+                    style={{ '--i': i }}
+                    onClick={() => setEditing(item.key)}
+                    type="button"
+                  >
+                    <span className="maint-due__dot" aria-hidden="true">{meta.dot}</span>
+                    <span className="maint-due__icon" aria-hidden="true">{item.icon}</span>
+                    <div className="maint-due__info">
+                      <span className="maint-due__label">{item.label}</span>
+                      <span className="maint-due__detail">
+                        Due at {dueAtDisp} {unitLabel}
+                        {item.status === 'overdue'
+                          ? ` · ${remainingDisp} ${unitLabel} overdue`
+                          : ` · ${remainingDisp} ${unitLabel} left`}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── Ring grid ── */}
       <div className="maint-grid">

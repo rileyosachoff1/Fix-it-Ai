@@ -19,6 +19,7 @@ function computePostalValidity(code, country) {
 
 export default function VehicleTab({
   vehicleInfo, onVehicleInfoChange,
+  vehicleSpecs = null,
   location, onLocationChange, onLocationCoordsChange,
   recentDiagnoses = [],
   units, onUnitsChange,
@@ -253,6 +254,57 @@ export default function VehicleTab({
           ))}
         </div>
       </section>
+
+      {/* ── Specifications (hidden when no specs data for this vehicle) ── */}
+      {vehicleSpecs && (() => {
+        const sp = vehicleSpecs;
+        const isEV = !!sp.isEV;
+        const rows = [
+          ['Engine', sp.engine],
+          ['Horsepower', sp.horsepower ? `${sp.horsepower} hp` : null],
+          ['Torque', sp.torque ? `${sp.torque} ${sp.torqueUnit || 'lb-ft'}` : null],
+          ['Transmission', sp.transmission],
+          ['Drivetrain', sp.drivetrain],
+          ['Fuel Type', sp.fuelType],
+          ...(isEV ? [
+            ['Range', sp.rangeKm ? `${sp.rangeKm} km` : null],
+            ['Battery', sp.batteryKWh ? `${sp.batteryKWh} kWh` : null],
+            ['AC Charging', sp.chargingMaxKW ? `${sp.chargingMaxKW} kW` : null],
+            ['DC Fast Charge', sp.dcFastChargeKW ? `${sp.dcFastChargeKW} kW` : null],
+          ] : [
+            ['Fuel Tank', sp.fuelTankL ? `${sp.fuelTankL} L` : null],
+            ['City', sp.L100kmCity ? `${sp.L100kmCity} L/100km` : null],
+            ['Highway', sp.L100kmHwy ? `${sp.L100kmHwy} L/100km` : null],
+          ]),
+          ['0–100 km/h', sp.zeroToHundred ? `${sp.zeroToHundred} s` : null],
+          ['Top Speed', sp.topSpeed_kmh ? `${sp.topSpeed_kmh} km/h` : null],
+          ['Seating', sp.seating ? `${sp.seating}` : null],
+          ['Cargo', sp.cargo_L ? `${sp.cargo_L} L` : null],
+          ['Towing', sp.towingCapacity_kg ? `${sp.towingCapacity_kg.toLocaleString()} kg` : null],
+          ['Weight', sp.weight_kg ? `${sp.weight_kg.toLocaleString()} kg` : null],
+          ...(isEV ? [] : [
+            ['Oil', sp.oilType ? `${sp.oilType}${sp.oilCapacity_L ? ` · ${sp.oilCapacity_L} L` : ''}` : null],
+            ['Spark Plugs', sp.sparkPlugInterval_km ? `Every ${sp.sparkPlugInterval_km.toLocaleString()} km` : null],
+            ['Timing', sp.timingChain == null ? null : sp.timingChain ? 'Chain — no scheduled replacement' : 'Belt — check replacement interval'],
+          ]),
+        ].filter(([, v]) => v != null && v !== '');
+        return (
+          <section className="veh-section">
+            <h2 className="veh-section__title">Specifications</h2>
+            <div className="veh-card veh-card--padded">
+              <div className="veh-specs-grid">
+                {rows.map(([label, value]) => (
+                  <div key={label} className="veh-spec">
+                    <span className="veh-spec__label">{label}</span>
+                    <span className="veh-spec__value">{value}</span>
+                  </div>
+                ))}
+              </div>
+              {sp.notes && <p className="veh-specs-note">💡 {sp.notes}</p>}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── Color swatch picker ── */}
       <section className="veh-section">

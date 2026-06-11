@@ -1,30 +1,15 @@
 import { useState } from 'react';
 import './AlertsTab.css';
-
-const DTC_INFO = {
-  P0420: { name: 'Catalyst System Efficiency Below Threshold', severity: 'warning', cause: 'Worn catalytic converter, exhaust leak, failing O2 sensor' },
-  P0171: { name: 'System Too Lean (Bank 1)', severity: 'warning', cause: 'Vacuum leak, dirty MAF sensor, low fuel pressure, failing O2 sensor' },
-  P0172: { name: 'System Too Rich (Bank 1)', severity: 'warning', cause: 'Leaking fuel injector, faulty MAF or coolant temp sensor' },
-  P0128: { name: 'Coolant Thermostat Temp Below Regulating', severity: 'info', cause: 'Faulty thermostat (stuck open), coolant temp sensor issue' },
-  P0300: { name: 'Random/Multiple Cylinder Misfire Detected', severity: 'critical', cause: 'Worn spark plugs, ignition coil, injector issue, low compression' },
-  P0301: { name: 'Cylinder 1 Misfire Detected', severity: 'critical', cause: 'Worn spark plug, ignition coil, injector, or compression issue' },
-  P0302: { name: 'Cylinder 2 Misfire Detected', severity: 'critical', cause: 'Worn spark plug, ignition coil, injector, or compression issue' },
-  P0303: { name: 'Cylinder 3 Misfire Detected', severity: 'critical', cause: 'Worn spark plug, ignition coil, injector, or compression issue' },
-  P0304: { name: 'Cylinder 4 Misfire Detected', severity: 'critical', cause: 'Worn spark plug, ignition coil, injector, or compression issue' },
-  P0455: { name: 'Evap System Large Leak', severity: 'info', cause: 'Loose/missing fuel cap, cracked EVAP hose, faulty purge valve' },
-  P0442: { name: 'Evap System Small Leak', severity: 'info', cause: 'Small crack in EVAP line, loose fuel cap seal' },
-  P0505: { name: 'Idle Air Control System', severity: 'warning', cause: 'Dirty or faulty IAC valve, vacuum leak' },
-  P0340: { name: 'Camshaft Position Sensor Circuit', severity: 'critical', cause: 'Faulty cam sensor, wiring issue, reluctor wheel damage' },
-  P0335: { name: 'Crankshaft Position Sensor Circuit', severity: 'critical', cause: 'Faulty crank sensor, wiring issue, damaged tone ring' },
-};
+import { getDtcInfo } from '../data/dtcCatalog.js';
+import { truncateSentences } from '../utils/alerts.js';
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 };
 
 function getInfo(code) {
-  return DTC_INFO[code] || { name: 'Fault code detected', severity: 'warning', cause: 'Connect OBD2 scanner for detailed diagnosis' };
+  return getDtcInfo(code);
 }
 
-function AlertCard({ fc, expanded, onToggle }) {
+function AlertCard({ fc, expanded, onToggle, onFindMechanic }) {
   const info = getInfo(fc.code);
   const sev  = info.severity;
   return (
@@ -62,16 +47,101 @@ function AlertCard({ fc, expanded, onToggle }) {
               <span className="alert-card__detail-val alert-card__detail-val--warn">⚠ Pending — not yet stored</span>
             </div>
           )}
+          {onFindMechanic && (
+            <button
+              className="alert-card__action-btn"
+              onClick={e => { e.stopPropagation(); onFindMechanic(); }}
+              type="button"
+            >
+              🔧 Find Mechanic for This
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-export default function AlertsTab({ faultCodes = [], recentDiagnoses = [] }) {
+// ── Maintenance overdue card (orange) ────────────────────────────────────────
+function MaintenanceAlertCard({ alert, onLogService }) {
+  return (
+    <div className="alert-generic alert-generic--maintenance">
+      <div className="alert-generic__top">
+        <span className="alert-generic__icon" aria-hidden="true">{alert.data?.icon || '🔧'}</span>
+        <span className="alert-generic__title">{alert.title}</span>
+      </div>
+      <p className="alert-generic__body">{alert.body}</p>
+      {alert.detail && <p className="alert-generic__detail">{alert.detail}</p>}
+      {onLogService && (
+        <button className="alert-generic__btn" onClick={onLogService} type="button">
+          📋 Open Service Log
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── NHTSA recall card (yellow) ───────────────────────────────────────────────
+function RecallAlertCard({ recall, vehicleInfo, onScheduleRepair }) {
+  const summary = truncateSentences(recall.summary, 2);
+  return (
+    <div className="alert-generic alert-generic--recall">
+      <div className="alert-generic__top">
+        <span className="alert-generic__icon" aria-hidden="true">📢</span>
+        <span className="alert-generic__title">Open Recall</span>
+        {recall.nhtsaNumber && (
+          <span className="alert-generic__ref">NHTSA #{recall.nhtsaNumber}</span>
+        )}
+      </div>
+      {recall.component && (
+        <p className="alert-generic__component">{recall.component}</p>
+      )}
+      {summary && <p className="alert-generic__body">{summary}</p>}
+      <div className="alert-generic__actions">
+        <a
+          className="alert-generic__link"
+          href={vehicleInfo?.vin
+            ? `https://www.nhtsa.gov/recalls?vin=${encodeURIComponent(vehicleInfo.vin)}`
+            : 'https://www.nhtsa.gov/recalls'}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Check if your VIN is affected →
+        </a>
+        {onScheduleRepair && (
+          <button className="alert-generic__btn" onClick={onScheduleRepair} type="button">
+            🔧 Schedule Repair
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Unresolved diagnosis card (blue) ─────────────────────────────────────────
+function DiagnosisAlertCard({ alert }) {
+  return (
+    <div className="alert-generic alert-generic--diagnosis">
+      <div className="alert-generic__top">
+        <span className="alert-generic__icon" aria-hidden="true">🎙️</span>
+        <span className="alert-generic__title">{alert.title}</span>
+      </div>
+      <p className="alert-generic__body">{alert.body}</p>
+      {alert.detail && <p className="alert-generic__detail">{alert.detail}</p>}
+    </div>
+  );
+}
+
+export default function AlertsTab({
+  faultCodes = [],
+  recentDiagnoses = [],
+  alerts = [],
+  vehicleInfo = null,
+  onFindMechanic,
+}) {
   const [expanded, setExpanded] = useState(null);
 
-  // Sort by severity
+  // Sort fault codes by severity (existing behaviour)
   const sorted = [...faultCodes].sort((a, b) => {
     const sa = SEVERITY_ORDER[getInfo(a.code).severity] ?? 1;
     const sb = SEVERITY_ORDER[getInfo(b.code).severity] ?? 1;
@@ -82,30 +152,44 @@ export default function AlertsTab({ faultCodes = [], recentDiagnoses = [] }) {
   const warning  = sorted.filter(fc => getInfo(fc.code).severity === 'warning');
   const info     = sorted.filter(fc => getInfo(fc.code).severity === 'info');
 
+  const maintenanceAlerts = alerts.filter(a => a.type === 'maintenance');
+  const recallAlerts      = alerts.filter(a => a.type === 'recall');
+  const diagnosisAlerts   = alerts.filter(a => a.type === 'diagnosis');
+
+  const totalAlerts = alerts.length;
+
   function toggle(code) {
     setExpanded(prev => prev === code ? null : code);
+  }
+
+  function findMechanicForCode(fc) {
+    onFindMechanic?.(
+      { primary: { diagnosis: `${fc.code} — ${fc.description || getInfo(fc.code).name}` } },
+      { dtcContext: fc }
+    );
   }
 
   return (
     <div className="alerts-tab">
       <div className="alerts-header">
         <h1 className="alerts-header__title">Alerts</h1>
-        {faultCodes.length > 0 && (
-          <span className="alerts-header__count">{faultCodes.length} active</span>
+        {totalAlerts > 0 && (
+          <span className="alerts-header__count">{totalAlerts} active</span>
         )}
       </div>
 
-      {faultCodes.length === 0 ? (
+      {totalAlerts === 0 ? (
         <div className="alerts-empty">
           <div className="alerts-empty__icon">✅</div>
           <h2 className="alerts-empty__title">All Clear!</h2>
-          <p className="alerts-empty__body">No active fault codes detected. Your vehicle is running clean.</p>
+          <p className="alerts-empty__body">No fault codes, overdue services, or open recalls. Your vehicle is in good shape.</p>
           {recentDiagnoses.length === 0 && (
             <p className="alerts-empty__hint">Tap the mic button to run an AI diagnosis anytime.</p>
           )}
         </div>
       ) : (
         <div className="alerts-list">
+          {/* ── OBD2 fault codes (red) ── */}
           {critical.length > 0 && (
             <div className="alerts-group">
               <div className="alerts-group__header alerts-group__header--critical">
@@ -115,7 +199,7 @@ export default function AlertsTab({ faultCodes = [], recentDiagnoses = [] }) {
                 Critical
               </div>
               {critical.map(fc => (
-                <AlertCard key={fc.code} fc={fc} expanded={expanded === fc.code} onToggle={() => toggle(fc.code)} />
+                <AlertCard key={fc.code} fc={fc} expanded={expanded === fc.code} onToggle={() => toggle(fc.code)} onFindMechanic={() => findMechanicForCode(fc)} />
               ))}
             </div>
           )}
@@ -129,7 +213,7 @@ export default function AlertsTab({ faultCodes = [], recentDiagnoses = [] }) {
                 Warning
               </div>
               {warning.map(fc => (
-                <AlertCard key={fc.code} fc={fc} expanded={expanded === fc.code} onToggle={() => toggle(fc.code)} />
+                <AlertCard key={fc.code} fc={fc} expanded={expanded === fc.code} onToggle={() => toggle(fc.code)} onFindMechanic={() => findMechanicForCode(fc)} />
               ))}
             </div>
           )}
@@ -143,7 +227,53 @@ export default function AlertsTab({ faultCodes = [], recentDiagnoses = [] }) {
                 Information
               </div>
               {info.map(fc => (
-                <AlertCard key={fc.code} fc={fc} expanded={expanded === fc.code} onToggle={() => toggle(fc.code)} />
+                <AlertCard key={fc.code} fc={fc} expanded={expanded === fc.code} onToggle={() => toggle(fc.code)} onFindMechanic={() => findMechanicForCode(fc)} />
+              ))}
+            </div>
+          )}
+
+          {/* ── Overdue maintenance (orange) ── */}
+          {maintenanceAlerts.length > 0 && (
+            <div className="alerts-group">
+              <div className="alerts-group__header alerts-group__header--maintenance">
+                🔧 Maintenance Overdue
+              </div>
+              {maintenanceAlerts.map(a => (
+                <MaintenanceAlertCard key={a.id} alert={a} />
+              ))}
+            </div>
+          )}
+
+          {/* ── NHTSA recalls (yellow) ── */}
+          {recallAlerts.length > 0 && (
+            <div className="alerts-group">
+              <div className="alerts-group__header alerts-group__header--recall">
+                📢 Safety Recalls
+              </div>
+              {recallAlerts.map(a => (
+                <RecallAlertCard
+                  key={a.id}
+                  recall={a.data}
+                  vehicleInfo={vehicleInfo}
+                  onScheduleRepair={onFindMechanic
+                    ? () => onFindMechanic(
+                        { primary: { diagnosis: `Recall: ${a.data?.component || 'Safety recall'}` } },
+                        { serviceFilter: 'Full Inspection' }
+                      )
+                    : null}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ── Unresolved diagnoses (blue) ── */}
+          {diagnosisAlerts.length > 0 && (
+            <div className="alerts-group">
+              <div className="alerts-group__header alerts-group__header--diagnosis">
+                🎙️ Unresolved Diagnoses
+              </div>
+              {diagnosisAlerts.map(a => (
+                <DiagnosisAlertCard key={a.id} alert={a} />
               ))}
             </div>
           )}

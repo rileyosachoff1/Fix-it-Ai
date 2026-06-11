@@ -126,3 +126,34 @@
   from { opacity: 0; transform: translateY(8px) scale(0.92); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ── Upgrade: unread dot + active-tab line indicator ──────────────────────── */
+.tab-bar__unread-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 6px rgba(255, 69, 58, 0.7);
+}
+.tab-bar__unread-dot--with-badge {
+  top: -6px;
+  right: -12px;
+  width: 5px;
+  height: 5px;
+}
+
+.tab-bar__item { position: relative; }
+.tab-bar__item--active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 2.5px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}

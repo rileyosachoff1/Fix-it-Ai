@@ -1090,3 +1090,69 @@
   .mech-screen { max-width: 540px; margin: 0 auto; }
   .mech-sheet  { border-radius: 20px 20px 0 0; }
 }
+
+/* ── Upgrade: DTC banner variant ──────────────────────────────────────────── */
+.mech-dx-banner--dtc {
+  border-color: rgba(255, 159, 10, 0.35);
+  background: var(--warning-muted, rgba(255, 159, 10, 0.15));
+  color: var(--warning, #ff9f0a);
+}
+.mech-dx-banner__code {
+  font-family: 'SF Mono', ui-monospace, monospace;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ── Upgrade: quick service filter chips ──────────────────────────────────── */
+.mech-filter-chips-block {
+  margin: 4px 0 16px;
+}
+.mech-filter-chips-label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, rgba(235, 235, 245, 0.8));
+}
+.mech-filter-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.mech-filter-chips::-webkit-scrollbar { display: none; }
+.mech-filter-chip {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 999px;
+  background: var(--bg-card, #1c1c1e);
+  color: var(--text-secondary, rgba(235, 235, 245, 0.8));
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.mech-filter-chip--active {
+  background: var(--accent, #0a84ff);
+  border-color: var(--accent, #0a84ff);
+  color: #fff;
+}
+
+/* ── Upgrade: make specialization badge ───────────────────────────────────── */
+.mech-make-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 2px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-muted, rgba(10, 132, 255, 0.12));
+  border: 1px solid rgba(10, 132, 255, 0.3);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent-bright, #409cff);
+}

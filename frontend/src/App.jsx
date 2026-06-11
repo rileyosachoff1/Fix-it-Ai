@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import TabBar          from './components/TabBar.jsx';
 import HomeTab         from './components/HomeTab.jsx';
 import LiveTab         from './components/LiveTab.jsx';
@@ -7,8 +7,14 @@ import MaintenanceTab  from './components/MaintenanceTab.jsx';
 import VehicleTab      from './components/VehicleTab.jsx';
 import DiagnoseModal   from './components/DiagnoseModal.jsx';
 import MechanicScreen  from './screens/MechanicScreen.jsx';
-import { DEFAULT_SCHEDULE } from './data/serviceSchedules.js';
+import { DEFAULT_SCHEDULE, getScheduleForVehicle } from './data/serviceSchedules.js';
+import { getSpecsForVehicle } from './data/vehicleSpecs.js';
 import * as obd2Service from './services/obd2Service.js';
+import { fetchSpecsAndRecalls, clearRecallsCache } from './services/vehicleSpecsService.js';
+import { odoToKm } from './utils/units.js';
+import { computeMaintenanceDue, oilOverdueKm } from './utils/maintenance.js';
+import { computeHealthScore } from './utils/healthScore.js';
+import { generateAlerts } from './utils/alerts.js';
 
 // Build DEFAULT_MAINTENANCE from serviceSchedules (all intervals in km)
 const DEFAULT_MAINTENANCE = Object.fromEntries(
@@ -17,6 +23,41 @@ const DEFAULT_MAINTENANCE = Object.fromEntries(
     { lastDate: null, lastKm: null, intervalKm: val.intervalKm, label: val.label },
   ])
 );
+
+const EMPTY_VEHICLE_INFO = {
+  year: '', make: '', model: '', trim: '',
+  nickname: '', vehicleColor: '',
+  odometer: '', odometerUnit: 'km',
+  postalCode: '',
+  licensePlate: '', vin: '', purchaseDate: '',
+};
+
+// ── localStorage helpers (lazy-init pattern — read once, write on change) ─────
+function readLS(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw != null ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLS(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota — ignore */ }
+}
+
+/** Merge a saved schedule over defaults so newly added schedule keys still appear. */
+function hydrateSchedule(saved) {
+  if (!saved || typeof saved !== 'object') return DEFAULT_MAINTENANCE;
+  const next = {};
+  for (const [key, def] of Object.entries(DEFAULT_MAINTENANCE)) {
+    next[key] = { ...def, ...(saved[key] || {}) };
+  }
+  for (const [key, val] of Object.entries(saved)) {
+    if (!next[key]) next[key] = val;
+  }
+  return next;
+}
 
 // ── Photo utilities (module-level — no React deps) ────────────────────────────
 function readFileAsDataUrl(file) {
@@ -48,20 +89,17 @@ export default function App() {
   // ── Navigation ─────────────────────────────────────────────────────────────
   const [activeTab,     setActiveTab]     = useState('home');
   const [diagnoseOpen,  setDiagnoseOpen]  = useState(false);
-  // mechanicScreen: null | { diagnosis: object|null }
+  // mechanicScreen: null | { diagnosis: object|null, dtcContext: object|null, serviceFilter: string|null }
   const [mechanicScreen, setMechanicScreen] = useState(null);
 
-  // ── Vehicle ────────────────────────────────────────────────────────────────
-  const [vehicleInfo, setVehicleInfo] = useState({
-    year: '', make: '', model: '', trim: '',
-    nickname: '', vehicleColor: '',
-    odometer: '', odometerUnit: 'km',
-    postalCode: '',
-    licensePlate: '', vin: '', purchaseDate: '',
-  });
-  const [location,       setLocation]       = useState('');
-  const [locationCoords, setLocationCoords] = useState(null); // { lat, lon } | null
-  const [units,          setUnits]          = useState('metric');
+  // ── Vehicle (persisted under fixit_vehicle_info) ───────────────────────────
+  const [vehicleInfo, setVehicleInfo] = useState(() => ({
+    ...EMPTY_VEHICLE_INFO,
+    ...readLS('fixit_vehicle_info', {}),
+  }));
+  const [location,       setLocation]       = useState(() => readLS('fixit_prefs', {}).location || '');
+  const [locationCoords, setLocationCoords] = useState(() => readLS('fixit_prefs', {}).locationCoords || null); // { lat, lon } | null
+  const [units,          setUnits]          = useState(() => readLS('fixit_prefs', {}).units || 'metric');
 
   // ── Vehicle photo ──────────────────────────────────────────────────────────
   // Shape: null  |  { dataUrl: string, analysis: object|null }
@@ -99,14 +137,106 @@ export default function App() {
   const [liveData,   setLiveData]   = useState(null);
   const [faultCodes, setFaultCodes] = useState([]);
 
-  // ── Diagnosis history ──────────────────────────────────────────────────────
-  const [recentDiagnoses, setRecentDiagnoses] = useState([]);
+  // ── Diagnosis history (persisted) ──────────────────────────────────────────
+  const [recentDiagnoses, setRecentDiagnoses] = useState(() => {
+    const saved = readLS('fixit_recent_diagnoses', []);
+    return Array.isArray(saved) ? saved : [];
+  });
 
-  // ── Maintenance ────────────────────────────────────────────────────────────
-  const [maintenanceSchedule, setMaintenanceSchedule] = useState(DEFAULT_MAINTENANCE);
+  // ── Maintenance (persisted) ────────────────────────────────────────────────
+  const [maintenanceSchedule, setMaintenanceSchedule] = useState(() => hydrateSchedule(readLS('fixit_maintenance_schedule', null)));
 
-  // ── Service records ────────────────────────────────────────────────────────
-  const [serviceRecords, setServiceRecords] = useState([]);
+  // ── Service records (persisted under fixit_service_history) ───────────────
+  const [serviceRecords, setServiceRecords] = useState(() => {
+    const saved = readLS('fixit_service_history', []);
+    return Array.isArray(saved) ? saved : [];
+  });
+
+  // ── Recalls (fetched from backend, which queries NHTSA) ───────────────────
+  const [recalls, setRecalls] = useState([]);
+
+  // ── Alerts seen (persisted — drives the unread dot on the tab bar) ────────
+  const [alertsSeen, setAlertsSeen] = useState(() => {
+    const saved = readLS('fixit_alerts_seen', []);
+    return Array.isArray(saved) ? saved : [];
+  });
+
+  // ── Persistence write effects ──────────────────────────────────────────────
+  useEffect(() => { writeLS('fixit_vehicle_info', vehicleInfo); }, [vehicleInfo]);
+  useEffect(() => { writeLS('fixit_service_history', serviceRecords); }, [serviceRecords]);
+  useEffect(() => { writeLS('fixit_maintenance_schedule', maintenanceSchedule); }, [maintenanceSchedule]);
+  useEffect(() => { writeLS('fixit_recent_diagnoses', recentDiagnoses); }, [recentDiagnoses]);
+  useEffect(() => { writeLS('fixit_alerts_seen', alertsSeen); }, [alertsSeen]);
+  useEffect(() => { writeLS('fixit_prefs', { units, location, locationCoords }); }, [units, location, locationCoords]);
+
+  // ── Derived vehicle data ───────────────────────────────────────────────────
+  const currentOdoKm = useMemo(
+    () => odoToKm(parseFloat(vehicleInfo.odometer) || 0, vehicleInfo.odometerUnit || 'km'),
+    [vehicleInfo.odometer, vehicleInfo.odometerUnit]
+  );
+
+  const vehicleSpecs = useMemo(
+    () => getSpecsForVehicle(vehicleInfo.make, vehicleInfo.model, vehicleInfo.year, vehicleInfo.trim),
+    [vehicleInfo.make, vehicleInfo.model, vehicleInfo.year, vehicleInfo.trim]
+  );
+
+  const vehicleSchedule = useMemo(
+    () => getScheduleForVehicle(vehicleInfo.make, vehicleInfo.model),
+    [vehicleInfo.make, vehicleInfo.model]
+  );
+
+  const maintenanceDue = useMemo(
+    () => computeMaintenanceDue(maintenanceSchedule, vehicleSchedule, currentOdoKm),
+    [maintenanceSchedule, vehicleSchedule, currentOdoKm]
+  );
+
+  // ── Health score (persisted so it survives reloads without OBD2) ──────────
+  const healthScore = useMemo(
+    () => computeHealthScore({
+      obd2Connected,
+      faultCodes,
+      liveData,
+      maintenanceDue,
+      recentDiagnoses,
+      oilOverKm: oilOverdueKm(maintenanceDue),
+    }),
+    [obd2Connected, faultCodes, liveData, maintenanceDue, recentDiagnoses]
+  );
+
+  useEffect(() => {
+    writeLS('fixit_health_score', { score: healthScore, computedAt: new Date().toISOString() });
+  }, [healthScore]);
+
+  // ── Recall check — when the vehicle identity changes ──────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    if (!vehicleInfo.make || !vehicleInfo.model) { setRecalls([]); return; }
+    fetchSpecsAndRecalls(vehicleInfo.make, vehicleInfo.model, vehicleInfo.year, vehicleInfo.trim)
+      .then(({ recalls: r }) => { if (!cancelled) setRecalls(r || []); })
+      .catch(() => { if (!cancelled) setRecalls([]); });
+    return () => { cancelled = true; };
+  }, [vehicleInfo.make, vehicleInfo.model, vehicleInfo.year, vehicleInfo.trim]);
+
+  // ── Unified alerts + unread tracking ───────────────────────────────────────
+  const alerts = useMemo(
+    () => generateAlerts({ faultCodes, maintenanceDue, recalls, recentDiagnoses }),
+    [faultCodes, maintenanceDue, recalls, recentDiagnoses]
+  );
+
+  const hasUnreadAlerts = useMemo(
+    () => alerts.some(a => !alertsSeen.includes(a.id)),
+    [alerts, alertsSeen]
+  );
+
+  // Mark all current alerts as seen when the user opens the Alerts tab
+  useEffect(() => {
+    if (activeTab !== 'alerts') return;
+    setAlertsSeen(prev => {
+      const ids = alerts.map(a => a.id);
+      const same = ids.length === prev.length && ids.every(id => prev.includes(id));
+      return same ? prev : ids;
+    });
+  }, [activeTab, alerts]);
 
   // ── OBD2 connection listener ───────────────────────────────────────────────
   useEffect(() => {
@@ -177,9 +307,24 @@ export default function App() {
   }, []);
 
   // ── Mechanic screen handlers ───────────────────────────────────────────────
-  const handleOpenMechanic = useCallback((diagnosis = null) => {
+  const handleOpenMechanic = useCallback((diagnosis = null, opts = {}) => {
     setDiagnoseOpen(false);
-    setMechanicScreen({ diagnosis });
+    setMechanicScreen({
+      diagnosis,
+      dtcContext:    opts.dtcContext    || null,
+      serviceFilter: opts.serviceFilter || null,
+    });
+  }, []);
+
+  // Open MechanicScreen pre-loaded with a fault code as the diagnosis context
+  const handleFindMechanicForCode = useCallback((fc) => {
+    setMechanicScreen({
+      diagnosis: {
+        primary: { diagnosis: `${fc.code} — ${fc.description || 'Fault code'}` },
+      },
+      dtcContext:    fc,
+      serviceFilter: null,
+    });
   }, []);
 
   const handleCloseMechanic = useCallback(() => {
@@ -297,13 +442,19 @@ export default function App() {
     setServiceRecords([]);
     setVehiclePhoto(null);
     setVehiclePhotoError(null);
-    setVehicleInfo({
-      year: '', make: '', model: '', trim: '', nickname: '', vehicleColor: '',
-      odometer: '', odometerUnit: 'km', postalCode: '',
-      licensePlate: '', vin: '', purchaseDate: '',
-    });
+    setVehicleInfo({ ...EMPTY_VEHICLE_INFO });
     setLocation('');
     setLocationCoords(null);
+    setRecalls([]);
+    setAlertsSeen([]);
+    // Remove every persisted key so the cleared state survives a refresh
+    for (const key of [
+      'fixit_vehicle_info', 'fixit_service_history', 'fixit_maintenance_schedule',
+      'fixit_recent_diagnoses', 'fixit_health_score', 'fixit_alerts_seen', 'fixit_prefs',
+    ]) {
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+    }
+    clearRecallsCache();
   }, []);
 
   // ── FAB visibility ─────────────────────────────────────────────────────────
@@ -333,6 +484,13 @@ export default function App() {
             onPhotoFileSelect={handleVehiclePhotoSelect}
             onPhotoRemove={handleVehiclePhotoRemove}
             onFindMechanic={() => handleOpenMechanic(null)}
+            healthScore={healthScore}
+            vehicleSpecs={vehicleSpecs}
+            maintenanceDue={maintenanceDue}
+            serviceRecords={serviceRecords}
+            currentOdoKm={currentOdoKm}
+            onStartDiagnosis={() => setDiagnoseOpen(true)}
+            onNavigateTab={setActiveTab}
           />
         )}
         {activeTab === 'live' && (
@@ -347,6 +505,8 @@ export default function App() {
             onObd2Disconnect={handleDisconnectScanner}
             mockScenarioIdx={mockScenarioIdx}
             units={units}
+            healthScore={healthScore}
+            onFindMechanicForCode={handleFindMechanicForCode}
           />
         )}
         {activeTab === 'maintenance' && (
@@ -359,6 +519,7 @@ export default function App() {
             serviceRecords={serviceRecords}
             onAddServiceRecord={handleAddServiceRecord}
             onDeleteServiceRecord={handleDeleteServiceRecord}
+            maintenanceDue={maintenanceDue}
           />
         )}
         {activeTab === 'alerts' && (
@@ -366,11 +527,15 @@ export default function App() {
             faultCodes={faultCodes}
             recentDiagnoses={recentDiagnoses}
             onClearFaults={handleDisconnectScanner}
+            alerts={alerts}
+            vehicleInfo={vehicleInfo}
+            onFindMechanic={handleOpenMechanic}
           />
         )}
         {activeTab === 'vehicle' && (
           <VehicleTab
             vehicleInfo={vehicleInfo}
+            vehicleSpecs={vehicleSpecs}
             onVehicleInfoChange={handleVehicleInfoChange}
             location={location}
             onLocationChange={setLocation}
@@ -396,7 +561,8 @@ export default function App() {
         onTabChange={setActiveTab}
         showFAB={showFAB}
         onDiagnosePress={() => setDiagnoseOpen(true)}
-        alertCount={faultCodes.length}
+        alertCount={alerts.length}
+        hasUnreadAlerts={hasUnreadAlerts}
       />
 
       {/* ── Diagnose modal ── */}
@@ -405,6 +571,9 @@ export default function App() {
           isOpen={diagnoseOpen}
           onClose={() => setDiagnoseOpen(false)}
           vehicleInfo={vehicleInfo}
+          vehicleSpecs={vehicleSpecs}
+          odometerKm={currentOdoKm}
+          lastOilChangeKm={maintenanceSchedule.oil?.lastKm ?? null}
           location={location}
           onLocationChange={setLocation}
           obd2Connected={obd2Connected}
@@ -420,6 +589,8 @@ export default function App() {
           locationCoords={locationCoords}
           vehicleInfo={vehicleInfo}
           diagnosis={mechanicScreen.diagnosis}
+          dtcContext={mechanicScreen.dtcContext}
+          initialServiceFilter={mechanicScreen.serviceFilter}
           onBack={handleCloseMechanic}
         />
       )}

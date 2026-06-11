@@ -250,3 +250,106 @@
 .alert-diag-card__sev--high     { background: rgba(255,71,87,0.1);  color: var(--danger); }
 .alert-diag-card__sev--medium   { background: rgba(255,179,0,0.12); color: var(--warning); }
 .alert-diag-card__sev--low      { background: rgba(0,214,143,0.1);  color: var(--success); }
+
+/* ── Upgrade: generic alert cards (maintenance / recall / diagnosis) ───────── */
+.alerts-group__header--maintenance { color: var(--warning); }
+.alerts-group__header--recall      { color: #ffd60a; }
+.alerts-group__header--diagnosis   { color: var(--accent-bright); }
+
+.alert-generic {
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 14px;
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+}
+.alert-generic--maintenance { border-left-color: var(--warning); }
+.alert-generic--recall      { border-left-color: #ffd60a; }
+.alert-generic--diagnosis   { border-left-color: var(--accent); }
+
+.alert-generic__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.alert-generic__icon  { font-size: 15px; }
+.alert-generic__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.alert-generic__ref {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--glass);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', ui-monospace, monospace;
+}
+.alert-generic__component {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+.alert-generic__body {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.alert-generic__detail {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.alert-generic__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.alert-generic__link {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-bright);
+  text-decoration: none;
+}
+.alert-generic__link:active { opacity: 0.7; }
+.alert-generic__btn {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent-muted);
+  color: var(--accent-bright);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.alert-generic__btn:active { background: rgba(10, 132, 255, 0.25); }
+
+.alert-card__action-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent-muted);
+  color: var(--accent-bright);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.alert-card__action-btn:active { background: rgba(10, 132, 255, 0.25); }

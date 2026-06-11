@@ -25,7 +25,7 @@ export default function AnalyzingScreen() {
       <div className="analyzing__spinner-wrap" aria-hidden="true">
         <div className="analyzing__ring analyzing__ring--outer" />
         <div className="analyzing__ring analyzing__ring--inner" />
-        <div className="analyzing__gear">🔧</div>
+        <div className="analyzing__gear pulse-processing">🔧</div>
       </div>
 
       {/* Status */}

@@ -197,3 +197,129 @@
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+/* ── Upgrade: health chip ──────────────────────────────────────────────────── */
+.live-health-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.live-health-chip__score {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.live-health-chip__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+/* ── Upgrade: sensor row statuses + meanings ───────────────────────────────── */
+.live-row--tappable { cursor: pointer; flex-direction: column; align-items: stretch; }
+.live-row__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.live-status {
+  display: inline-block;
+  width: 16px;
+  margin-right: 6px;
+  font-weight: 700;
+  text-align: center;
+}
+.live-status--ok   { color: var(--success); }
+.live-status--warn { color: var(--warning); }
+.live-status--bad  { color: var(--danger); }
+.live-row__meaning {
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--glass);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.live-table-hint {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Upgrade: DTC fault cards ──────────────────────────────────────────────── */
+.live-fault-card {
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 14px;
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+}
+.live-fault-card--critical { border-left-color: var(--danger); }
+.live-fault-card--info     { border-left-color: var(--accent); }
+.live-fault-card__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.live-fault-card__code {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'SF Mono', ui-monospace, monospace;
+  color: var(--text-primary);
+}
+.live-fault-card__sev {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.live-fault-card__sev--critical { background: var(--danger-muted);  color: var(--danger); }
+.live-fault-card__sev--warning  { background: var(--warning-muted); color: var(--warning); }
+.live-fault-card__sev--info     { background: var(--accent-muted);  color: var(--accent-bright); }
+.live-fault-card__pending {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--glass);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.live-fault-card__name {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.live-fault-card__cause {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+.live-fault-card__btn {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent-muted);
+  color: var(--accent-bright);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.live-fault-card__btn:active { background: rgba(10, 132, 255, 0.25); }

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import './HomeTab.css';
+import { healthTier } from '../utils/healthScore.js';
 
 // ── Vehicle type detection ──────────────────────────────────────────────────
 const SUV_KEYWORDS    = ['explorer','tahoe','suburban','escalade','4runner','pilot','cr-v','crv','rav4','rogue','tucson','equinox','traverse','pathfinder','armada','sequoia','wrangler','cherokee','compass','telluride','palisade','santa fe','cx-5','cx5','cx-9','outback','forester','highlander','gx','lx','rx','nx','rdx','mdx','qx80','qx60','murano','xc90','xc60','defender','range rover','discovery','navigator','expedition','q5','q7','q8','gle','glc','gls'];
@@ -65,7 +66,7 @@ function HealthRing({ score }) {
   const R      = 30;
   const circ   = 2 * Math.PI * R;
   const offset = circ * (1 - score / 100);
-  const color  = score >= 80 ? 'var(--success)' : score >= 55 ? 'var(--warning)' : 'var(--danger)';
+  const { color } = healthTier(score);
   return (
     <svg viewBox="0 0 80 80" width="76" height="76" style={{ flexShrink: 0 }}>
       <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5"/>
@@ -97,21 +98,7 @@ function StatCard({ label, value, unit, status }) {
   );
 }
 
-// ── Health helpers ──────────────────────────────────────────────────────────
-function calcHealth(faultCodes, liveData) {
-  let s = 100;
-  if (faultCodes?.length) s -= Math.min(faultCodes.length * 15, 60);
-  if (liveData) {
-    if (liveData.coolantTemp > 108) s -= 15;
-    else if (liveData.coolantTemp > 0 && liveData.coolantTemp < 60) s -= 8;
-    if (liveData.batteryVoltage) {
-      if (liveData.batteryVoltage < 12.0 || liveData.batteryVoltage > 15.5) s -= 10;
-      else if (liveData.batteryVoltage < 12.4) s -= 5;
-    }
-    if (Math.abs(liveData.fuelTrimLT || 0) > 20) s -= 5;
-  }
-  return Math.max(0, Math.min(100, s));
-}
+// ── Status helpers ──────────────────────────────────────────────────────────
 function coolantStatus(v)  { return v > 105 ? 'danger' : v > 100 ? 'warn' : 'ok'; }
 function batteryStatus(v)  { return v < 11.8 || v > 15.5 ? 'danger' : v < 12.2 ? 'warn' : 'ok'; }
 function fuelTrimStatus(v) { return Math.abs(v) > 20 ? 'danger' : Math.abs(v) > 12 ? 'warn' : 'ok'; }
@@ -126,9 +113,15 @@ export default function HomeTab({
   vehiclePhoto, vehiclePhotoLoading, vehiclePhotoError,
   onPhotoFileSelect, onPhotoRemove,
   onFindMechanic,
+  healthScore = 85,
+  vehicleSpecs = null,
+  maintenanceDue = [],
+  serviceRecords = [],
+  currentOdoKm = 0,
+  onStartDiagnosis,
+  onNavigateTab,
 }) {
   const vehicleType  = getVehicleType(vehicleInfo?.make || '', vehicleInfo?.model || '');
-  const healthScore  = calcHealth(faultCodes, liveData);
   const vehicleName  = vehicleInfo?.nickname
     || [vehicleInfo?.year, vehicleInfo?.make, vehicleInfo?.model].filter(Boolean).join(' ')
     || 'My Vehicle';
@@ -172,6 +165,57 @@ export default function HomeTab({
     return units === 'imperial' ? Math.round(c * 9/5 + 32) : Math.round(c);
   }
   function tempUnit() { return units === 'imperial' ? '°F' : '°C'; }
+
+  // ── Health tier + dashboard data ──────────────────────────────────────────
+  const tier = healthTier(healthScore);
+
+  // Km since the most recent logged service (records or schedule log)
+  const lastServiceKm = (() => {
+    const kms = [
+      ...serviceRecords.map(r => r.mileageKm),
+      ...maintenanceDue.map(i => i.lastKm),
+    ].filter(v => v != null && v > 0);
+    return kms.length ? Math.max(...kms) : null;
+  })();
+  const kmSinceService = (lastServiceKm != null && currentOdoKm > 0)
+    ? Math.max(0, currentOdoKm - lastServiceKm)
+    : null;
+
+  const isEV = !!vehicleSpecs?.isEV;
+  const odoLabel = vehicleInfo?.odometer
+    ? `${parseFloat(vehicleInfo.odometer).toLocaleString()} ${vehicleInfo.odometerUnit || 'km'}`
+    : null;
+
+  // Stat pills: engine · odometer · km since service · fuel type
+  const statPills = vehicleSpecs ? [
+    { icon: isEV ? '⚡' : '🔧', label: 'Engine', value: vehicleSpecs.engine },
+    { icon: '🛣️', label: 'Odometer', value: odoLabel || '—' },
+    { icon: '🗓️', label: 'Since service', value: kmSinceService != null ? `${kmSinceService.toLocaleString()} km` : '—' },
+    { icon: isEV ? '🔋' : '⛽', label: 'Fuel', value: vehicleSpecs.fuelType || (isEV ? 'Electric' : '—') },
+  ] : [];
+
+  // Specs strip: 6 chips, EV-aware. Hidden entirely when no specs.
+  const specChips = !vehicleSpecs ? [] : isEV ? [
+    { label: 'Range',    value: vehicleSpecs.rangeKm ? `${vehicleSpecs.rangeKm} km` : '—' },
+    { label: 'Battery',  value: vehicleSpecs.batteryKWh ? `${vehicleSpecs.batteryKWh} kWh` : '—' },
+    { label: 'DC Fast',  value: vehicleSpecs.dcFastChargeKW ? `${vehicleSpecs.dcFastChargeKW} kW` : '—' },
+    { label: 'Power',    value: vehicleSpecs.horsepower ? `${vehicleSpecs.horsepower} hp` : '—' },
+    { label: '0–100',    value: vehicleSpecs.zeroToHundred ? `${vehicleSpecs.zeroToHundred}s` : '—' },
+    { label: 'Drive',    value: vehicleSpecs.drivetrain || '—' },
+  ] : [
+    { label: 'Power',    value: vehicleSpecs.horsepower ? `${vehicleSpecs.horsepower} hp` : '—' },
+    { label: 'Torque',   value: vehicleSpecs.torque ? `${vehicleSpecs.torque} ${vehicleSpecs.torqueUnit || 'lb-ft'}` : '—' },
+    { label: '0–100',    value: vehicleSpecs.zeroToHundred ? `${vehicleSpecs.zeroToHundred}s` : '—' },
+    { label: 'Economy',  value: vehicleSpecs.L100kmCombined ? `${vehicleSpecs.L100kmCombined} L/100km` : '—' },
+    { label: 'Tank',     value: vehicleSpecs.fuelTankL ? `${vehicleSpecs.fuelTankL} L` : '—' },
+    { label: 'Drive',    value: vehicleSpecs.drivetrain || '—' },
+  ];
+
+  function handleObd2Action() {
+    if (obd2Connected) { onNavigateTab?.('live'); return; }
+    if (isChrome) onObd2Connect?.();
+    else onObd2ConnectMock?.();
+  }
 
   return (
     <div className="home-tab">
@@ -321,6 +365,71 @@ export default function HomeTab({
         )}
       </div>
 
+      {/* ── Health score bar ── */}
+      <div className="home-health">
+        <div className="home-health__header">
+          <h2 className="home-section-title">VEHICLE HEALTH</h2>
+          <span className="home-health__label" style={{ color: tier.color }}>{tier.label}</span>
+        </div>
+        <div className="home-health__bar" role="progressbar" aria-valuenow={healthScore} aria-valuemin="0" aria-valuemax="100">
+          <div className="home-health__bar-fill" style={{ width: `${healthScore}%`, background: tier.color }} />
+        </div>
+        <div className="home-health__meta">
+          <span className="home-health__score" style={{ color: tier.color }}>{healthScore}<span className="home-health__score-max">/100</span></span>
+          <span className="home-health__hint">
+            {obd2Connected ? 'Live from OBD2 scanner' : 'Estimated from service history'}
+          </span>
+        </div>
+      </div>
+
+      {/* ── Stat pills ── */}
+      {statPills.length > 0 && (
+        <div className="home-pills">
+          {statPills.map((p, i) => (
+            <div key={p.label} className="home-pill" style={{ '--i': i }}>
+              <span className="home-pill__icon" aria-hidden="true">{p.icon}</span>
+              <div className="home-pill__text">
+                <span className="home-pill__label">{p.label}</span>
+                <span className="home-pill__value">{p.value}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Specs strip (hidden when no specs for this vehicle) ── */}
+      {specChips.length > 0 && (
+        <div className="home-specs-strip" aria-label="Vehicle specifications">
+          {specChips.map((c, i) => (
+            <div key={c.label} className="home-spec-chip" style={{ '--i': i }}>
+              <span className="home-spec-chip__value">{c.value}</span>
+              <span className="home-spec-chip__label">{c.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Quick actions ── */}
+      <div className="home-actions">
+        <button className="home-action" onClick={onStartDiagnosis}>
+          <span className="home-action__icon" aria-hidden="true">🎙️</span>
+          <span className="home-action__label">Start Diagnosis</span>
+        </button>
+        <button className="home-action" onClick={handleObd2Action}>
+          <span className="home-action__icon" aria-hidden="true">🔌</span>
+          <span className="home-action__label">{obd2Connected ? 'View Live Data' : 'Connect OBD2'}</span>
+        </button>
+        <button className="home-action" onClick={onFindMechanic}>
+          <span className="home-action__icon" aria-hidden="true">🔧</span>
+          <span className="home-action__label">Find Mechanic</span>
+          <span className="home-action__badge" aria-hidden="true">✦</span>
+        </button>
+        <button className="home-action" onClick={() => onNavigateTab?.('maintenance')}>
+          <span className="home-action__icon" aria-hidden="true">📋</span>
+          <span className="home-action__label">Service Log</span>
+        </button>
+      </div>
+
       {/* ── Photo options bottom sheet ── */}
       {showPhotoOptions && (
         <div
@@ -368,23 +477,6 @@ export default function HomeTab({
           </div>
         </div>
       )}
-
-      {/* ── Find Mechanic quick action ── */}
-      <button className="home-find-mechanic" onClick={onFindMechanic}>
-        <div className="home-find-mechanic__icon-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-          </svg>
-        </div>
-        <div className="home-find-mechanic__text">
-          <span className="home-find-mechanic__title">Find a Mechanic</span>
-          <span className="home-find-mechanic__sub">FixIt AI partner shops near you</span>
-        </div>
-        <div className="home-find-mechanic__badge">✦</div>
-        <svg className="home-find-mechanic__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="9 18 15 12 9 6"/>
-        </svg>
-      </button>
 
       {/* ── Scanner status ── */}
       <div className={`home-scanner home-scanner--${obd2Connected ? 'connected' : obd2Connecting ? 'connecting' : 'idle'}`}>

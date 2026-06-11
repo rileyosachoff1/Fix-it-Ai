@@ -7,6 +7,7 @@ const fs       = require('fs');
 const path     = require('path');
 const https    = require('https');
 const Anthropic = require('@anthropic-ai/sdk');
+const { getSpecsForVehicle } = require('./data/vehicleSpecs.js');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -21,8 +22,10 @@ const SYSTEM_PROMPT = `You are an expert automotive mechanic and diagnostic spec
 You will receive one or more of the following inputs:
   1. Structured acoustic analysis report(s) derived from real microphone recordings — there may be multiple (parked, in motion, steering test)
   2. The vehicle's year, make, and model (optional but highly useful)
-  3. A description from the driver (optional)
-  4. Photos and/or video frames from the vehicle (optional)
+  3. Detailed factory specifications for the exact vehicle, including engine, oil spec, maintenance intervals, and known common issues (optional)
+  4. Odometer reading and maintenance history context (optional)
+  5. A description from the driver (optional)
+  6. Photos and/or video frames from the vehicle (optional)
 
 Analyze ALL provided information holistically and return a ranked differential diagnosis.
 
@@ -49,23 +52,27 @@ REQUIRED JSON STRUCTURE:
       { "issue": "Contributing factor or variant", "likelihood": "medium", "explanation": "Explanation" },
       { "issue": "Less likely cause", "likelihood": "low", "explanation": "Explanation" }
     ],
-    "estimatedCost": { "min": <integer USD>, "max": <integer USD>, "currency": "USD" },
+    "estimatedCost": { "min": <integer CAD>, "max": <integer CAD>, "currency": "CAD" },
     "ifIgnored": "Specific mechanical consequence if not addressed — what breaks next and when",
-    "recommendedAction": "Clear, specific, actionable guidance for the driver"
+    "recommendedAction": "Clear, specific, actionable guidance for the driver",
+    "whyThis": "1–2 plain-English sentences explaining why this diagnosis fits THIS vehicle and the evidence provided",
+    "repairTimeHours": { "min": <number>, "max": <number> },
+    "diyDifficulty": "easy" | "moderate" | "hard",
+    "commonForVehicle": "1 sentence if this is a known/common issue for this exact year/make/model (mention the vehicle and mileage), otherwise null"
   },
   "alternatives": [
     {
       "diagnosis": "Second most likely diagnosis",
       "confidence": <integer 0–100>,
       "explanation": "Exactly 2 sentences: (1) why this could produce the observed symptoms, (2) how to distinguish it from the primary diagnosis",
-      "estimatedCost": { "min": <integer USD>, "max": <integer USD>, "currency": "USD" },
+      "estimatedCost": { "min": <integer CAD>, "max": <integer CAD>, "currency": "CAD" },
       "ruleOut": "One specific, simple test or observation the driver or mechanic can perform to confirm or eliminate this possibility"
     },
     {
       "diagnosis": "Third possibility",
       "confidence": <integer 0–100>,
       "explanation": "Exactly 2 sentences as above",
-      "estimatedCost": { "min": <integer USD>, "max": <integer USD>, "currency": "USD" },
+      "estimatedCost": { "min": <integer CAD>, "max": <integer CAD>, "currency": "CAD" },
       "ruleOut": "One specific test or observation"
     }
   ]
@@ -86,6 +93,14 @@ VEHICLE-SPECIFIC GUIDANCE (use when year/make/model is provided):
   - Reference known TSBs and common failure patterns for that exact vehicle
   - Adjust cost estimates for that vehicle's parts/labor complexity
   - Note any model-specific quirks (e.g. Ford 5.4L 3-valve cam phasers, Subaru head gaskets, GM DOD lifters)
+
+VEHICLE SPECIFICATIONS CONTEXT (when a VEHICLE SPECIFICATIONS block is provided):
+  - Reason from the EXACT engine: e.g. "a knocking on a 1.5L turbocharged engine suggests..." — turbo engines, V8s with cylinder deactivation, CVTs, and boxer engines each have distinct failure signatures
+  - If any listed COMMON ISSUE for this model matches the symptoms, prioritize it, raise confidence accordingly, and state the match in "commonForVehicle"
+  - Use the odometer reading against the provided maintenance intervals: an overdue oil change, spark plugs past their interval, or high mileage shifts the differential (e.g. lifter tick on an engine 8,000 km past its oil change → check oil first)
+  - Timing: if the vehicle uses a timing CHAIN, do not recommend belt replacement; if a BELT, factor its interval into the diagnosis
+  - If the vehicle is an EV (isEV true), NEVER diagnose combustion components (oil, spark plugs, exhaust, belts) — focus on motors, bearings, coolant pumps, suspension, and 12V systems
+  - Use the exact oil type/capacity in recommendations rather than generic advice
 
 VISUAL ANALYSIS GUIDANCE (use when photos/frames are provided):
   - Look for fluid leaks, belt cracking, hose deterioration, corrosion
@@ -125,7 +140,9 @@ OBD2 SCANNER DATA (when provided):
 
 ALTERNATIVES MUST always contain exactly 2 entries.
 CAUSES in primary MUST always contain exactly 3 entries.
-All cost estimates reflect average US independent shop prices (labor + parts).`;
+The primary MUST always include whyThis, repairTimeHours, diyDifficulty, and commonForVehicle (null when not applicable).
+All cost estimates MUST be in CANADIAN DOLLARS (CAD) and reflect average Canadian independent shop prices (labor + parts).
+All distances MUST be expressed in kilometres, never miles.`;
 
 // ── Mock diagnoses — new 3-diagnosis format ───────────────────────────────────
 const MOCK_DIAGNOSES = [
@@ -140,23 +157,27 @@ const MOCK_DIAGNOSES = [
         { issue: 'Weak belt tensioner spring', likelihood: 'medium', explanation: 'Tensioner spring fatigues, allowing belt to oscillate under load and squeal intermittently, especially when AC compressor cycles on.' },
         { issue: 'Seized idler pulley bearing', likelihood: 'low', explanation: 'A binding idler bearing creates constant dragging squeal regardless of load or temperature.' },
       ],
-      estimatedCost: { min: 120, max: 280, currency: 'USD' },
+      estimatedCost: { min: 160, max: 380, currency: 'CAD' },
       ifIgnored: 'Belt will eventually crack and snap, instantly disabling the alternator, power steering, water pump, and AC simultaneously — leaving you stranded and risking engine overheating within minutes.',
       recommendedAction: 'Schedule inspection within 1–2 weeks. Quick confirmation test: with engine running, briefly mist water onto the belt — if squeal intensifies then fades, belt is confirmed. Replace belt and inspect tensioner.',
+      whyThis: 'The squeal rises and falls with engine RPM and worsens under accessory load — that pattern points to a slipping drive belt, not an internal engine problem.',
+      repairTimeHours: { min: 0.5, max: 1 },
+      diyDifficulty: 'moderate',
+      commonForVehicle: null,
     },
     alternatives: [
       {
         diagnosis: 'Failing Belt Tensioner',
         confidence: 42,
         explanation: 'A fatiguing tensioner spring allows belt tension to fluctuate, producing nearly identical high-pitched squeal under varying loads. Unlike pure belt glazing, a tensioner issue often produces a rhythmic flutter visible on the tensioner arm while idling.',
-        estimatedCost: { min: 80, max: 200, currency: 'USD' },
+        estimatedCost: { min: 110, max: 270, currency: 'CAD' },
         ruleOut: 'With engine running, watch the tensioner arm — if it oscillates or vibrates visibly, the tensioner is failing rather than the belt itself.',
       },
       {
         diagnosis: 'Alternator Bearing Whine',
         confidence: 22,
         explanation: 'A worn alternator front bearing can produce a sustained high-pitched whine that varies with RPM and increases under electrical load (headlights, AC). It differs from belt squeal in that it continues briefly after the engine is turned off.',
-        estimatedCost: { min: 180, max: 450, currency: 'USD' },
+        estimatedCost: { min: 240, max: 610, currency: 'CAD' },
         ruleOut: 'Briefly disconnect the serpentine belt (engine off) and spin the alternator pulley by hand — roughness or grinding confirms a bad bearing.',
       },
     ],
@@ -172,23 +193,27 @@ const MOCK_DIAGNOSES = [
         { issue: 'Cupped or feathered tire tread', likelihood: 'medium', explanation: 'Irregular tire wear from misalignment or worn shocks creates a similar speed-dependent hum that can mimic bearing noise.' },
         { issue: 'Loose or worn CV joint', likelihood: 'low', explanation: 'A worn inner CV joint can produce humming at certain speeds before advancing to the more characteristic clicking on turns.' },
       ],
-      estimatedCost: { min: 180, max: 420, currency: 'USD' },
+      estimatedCost: { min: 240, max: 570, currency: 'CAD' },
       ifIgnored: 'Bearing will progress to complete failure — wheel wobble, then sudden seizure at speed causing loss of vehicle control. This is a safety-critical item.',
-      recommendedAction: 'Isolate the axle: in a safe empty lot at ~20 mph, sway gently left then right. If hum increases when weight shifts to one side, that wheel\'s bearing is confirmed. Book within 2 weeks.',
+      recommendedAction: 'Isolate the axle: in a safe empty lot at ~30 km/h, sway gently left then right. If hum increases when weight shifts to one side, that wheel\'s bearing is confirmed. Book within 2 weeks.',
+      whyThis: 'The hum scales with road speed (not engine RPM) and changes with cornering load — both classic markers of a worn hub bearing rather than tire or drivetrain noise.',
+      repairTimeHours: { min: 1, max: 2 },
+      diyDifficulty: 'hard',
+      commonForVehicle: null,
     },
     alternatives: [
       {
         diagnosis: 'Cupped Rear Tires',
         confidence: 38,
         explanation: 'Worn shock absorbers allow tires to bounce at speed, creating cupped wear patterns that generate a rhythmic hum almost identical to wheel bearing noise. Unlike bearings, tire noise is less affected by lateral weight transfer during cornering.',
-        estimatedCost: { min: 400, max: 900, currency: 'USD' },
+        estimatedCost: { min: 540, max: 1220, currency: 'CAD' },
         ruleOut: 'Run your hand across the tire tread — cupping feels like scalloped or uneven high/low spots across the tread blocks, clearly distinguishable from smooth wear.',
       },
       {
         diagnosis: 'Worn CV Axle (inner joint)',
         confidence: 18,
         explanation: 'An inner CV joint with deteriorated balls and cage can produce a low rumble under acceleration at certain speeds. Unlike a wheel bearing, this typically intensifies specifically during hard acceleration rather than being purely speed-dependent.',
-        estimatedCost: { min: 150, max: 380, currency: 'USD' },
+        estimatedCost: { min: 200, max: 510, currency: 'CAD' },
         ruleOut: 'Note whether the hum increases specifically during acceleration (under load) — if so, inner CV joint is more likely than a bearing which hums constantly at speed.',
       },
     ],
@@ -204,23 +229,27 @@ const MOCK_DIAGNOSES = [
         { issue: 'Worn inner CV joint', likelihood: 'medium', explanation: 'Inner joint deterioration typically produces clicking under hard acceleration rather than during turns, but can be confused with outer joint noise.' },
         { issue: 'Loose wheel bearing with play', likelihood: 'low', explanation: 'Excessive bearing preload loss causes clunking/clicking on tight turns but usually lacks the rhythmic, speed-proportional character of CV noise.' },
       ],
-      estimatedCost: { min: 150, max: 380, currency: 'USD' },
+      estimatedCost: { min: 200, max: 510, currency: 'CAD' },
       ifIgnored: 'CV joint will disintegrate during a turn — vehicle becomes immediately undriveable. Risk of catastrophic axle shaft separation at highway speeds.',
       recommendedAction: 'Confirm by turning steering wheel full lock in a parking lot — clicking should be pronounced and rhythmic. Schedule CV axle half-shaft replacement within 2 weeks.',
+      whyThis: 'Clicking that appears specifically while turning is the defining behaviour of a worn outer CV joint — very few other components produce that exact pattern.',
+      repairTimeHours: { min: 1, max: 2.5 },
+      diyDifficulty: 'hard',
+      commonForVehicle: null,
     },
     alternatives: [
       {
         diagnosis: 'Loose Brake Hardware (anti-rattle clips)',
         confidence: 28,
         explanation: 'Loose or missing brake pad anti-rattle hardware creates a repetitive metallic clicking that can occur while driving, particularly noticeable during slow turns when weight shifts onto that corner. Unlike CV noise, it often occurs even when going straight over bumps.',
-        estimatedCost: { min: 30, max: 120, currency: 'USD' },
+        estimatedCost: { min: 40, max: 160, currency: 'CAD' },
         ruleOut: 'Apply the brakes lightly while the clicking occurs — brake hardware noise almost always stops or changes when the pads are pressed against the rotor.',
       },
       {
         diagnosis: 'Worn Strut Mount Bearing',
         confidence: 15,
         explanation: 'A failing strut mount bearing (top of front strut) produces clicking and clunking during steering input as the bearing binds rather than pivoting smoothly. Unlike CV noise, it is most noticeable at low speeds and during parking maneuvers.',
-        estimatedCost: { min: 150, max: 350, currency: 'USD' },
+        estimatedCost: { min: 200, max: 470, currency: 'CAD' },
         ruleOut: 'With vehicle stationary, turn the steering wheel lock-to-lock — strut mount noise occurs even at zero speed and can often be felt as a clunk in the steering column.',
       },
     ],
@@ -236,23 +265,27 @@ const MOCK_DIAGNOSES = [
         { issue: 'Oil starvation / critically low oil level', likelihood: 'medium', explanation: 'Insufficient oil volume allows bearing surfaces to run dry. Check oil dipstick immediately — this is the first thing to rule out.' },
         { issue: 'Spun main bearing', likelihood: 'low', explanation: 'Main bearing failure produces a similar knock but is typically duller, heavier, and more consistent across the rev range than rod knock.' },
       ],
-      estimatedCost: { min: 1500, max: 4500, currency: 'USD' },
-      ifIgnored: 'Connecting rod will punch through the engine block without warning — complete engine destruction. This can happen within miles or hours at highway speed. There is no recoverable outcome once it progresses.',
+      estimatedCost: { min: 2000, max: 6100, currency: 'CAD' },
+      ifIgnored: 'Connecting rod will punch through the engine block without warning — complete engine destruction. This can happen within kilometres or hours at highway speed. There is no recoverable outcome once it progresses.',
       recommendedAction: 'STOP DRIVING IMMEDIATELY. Turn engine off. Check oil level — if critically low, add oil before attempting to move the vehicle. Do not restart until inspected. Arrange a tow.',
+      whyThis: 'A deep knock that tracks engine RPM exactly and persists when warm is the acoustic fingerprint of a rod bearing running metal-on-metal — the most urgent engine sound there is.',
+      repairTimeHours: { min: 10, max: 25 },
+      diyDifficulty: 'hard',
+      commonForVehicle: null,
     },
     alternatives: [
       {
         diagnosis: 'Piston Slap',
         confidence: 35,
         explanation: 'Excessive piston-to-bore clearance creates a slapping knock similar to rod knock but typically loudest when cold and quieting within 60–90 seconds as the piston expands with heat. Rod knock worsens or stays consistent as the engine warms.',
-        estimatedCost: { min: 800, max: 3000, currency: 'USD' },
+        estimatedCost: { min: 1080, max: 4050, currency: 'CAD' },
         ruleOut: 'Note whether the knock is loudest at cold start and significantly quieter after 2 minutes of running — piston slap characteristically fades with warmup while rod knock persists.',
       },
       {
         diagnosis: 'Loose Timing Chain / VVT Cam Phaser Rattle',
         confidence: 25,
         explanation: 'A stretched timing chain or worn VVT cam phaser rattles loudly on cold start and can sound like deep knocking until oil pressure builds. Unlike rod knock, it is typically loudest in the first 2–3 seconds of startup and comes from the front/top of the engine.',
-        estimatedCost: { min: 600, max: 2500, currency: 'USD' },
+        estimatedCost: { min: 810, max: 3380, currency: 'CAD' },
         ruleOut: 'Listen for the knock specifically in the first 2 seconds of cold start — timing/phaser noise is almost always loudest in that window, then diminishes; rod knock builds or stays constant.',
       },
     ],
@@ -268,23 +301,27 @@ const MOCK_DIAGNOSES = [
         { issue: 'Glazed brake rotor surface', likelihood: 'medium', explanation: 'Rotor surface glaze from heat cycling or pad contamination causes sustained squeal even with adequate remaining pad thickness.' },
         { issue: 'Seized brake caliper slide pin', likelihood: 'low', explanation: 'Binding caliper prevents even pad release, causing one side to wear prematurely and squeal from uneven contact.' },
       ],
-      estimatedCost: { min: 150, max: 380, currency: 'USD' },
+      estimatedCost: { min: 200, max: 510, currency: 'CAD' },
       ifIgnored: 'Pads will wear completely to metal backing plates — rotors will be scored and gouged, upgrading the repair from pad replacement to full brake job including rotors. Braking distance increases significantly.',
       recommendedAction: 'Schedule brake inspection within 1 week. If you hear grinding instead of squealing, the pads are already metal-on-metal — reduce driving immediately and book same-day.',
+      whyThis: 'The squeal happens only while braking and stops when you release the pedal — exactly how the built-in pad wear indicators are designed to warn you.',
+      repairTimeHours: { min: 1, max: 2 },
+      diyDifficulty: 'moderate',
+      commonForVehicle: null,
     },
     alternatives: [
       {
         diagnosis: 'Warped Brake Rotors',
         confidence: 40,
         explanation: 'Warped or scored rotor surfaces create a rhythmic pulsation and intermittent squeal during braking as the pad contacts high spots. Unlike pad wear noise, rotor noise often comes with a brake pedal vibration at the same rhythm as the squeal.',
-        estimatedCost: { min: 200, max: 500, currency: 'USD' },
+        estimatedCost: { min: 270, max: 680, currency: 'CAD' },
         ruleOut: 'Feel the brake pedal for pulsation or vibration during moderate braking — a warped rotor creates a distinct rhythmic pulse in the pedal that worn pads alone do not.',
       },
       {
         diagnosis: 'Brake Dust Shield Interference',
         confidence: 18,
         explanation: 'A bent or corroded brake dust shield rubbing against the rotor creates a continuous metallic scraping or squealing that sounds like pad noise but is not load-dependent — it occurs while rolling even without braking.',
-        estimatedCost: { min: 0, max: 80, currency: 'USD' },
+        estimatedCost: { min: 0, max: 110, currency: 'CAD' },
         ruleOut: 'Test whether the sound occurs while rolling without pressing the brake pedal — dust shield interference is constant while moving, while pad wear noise is almost exclusively present during braking.',
       },
     ],
@@ -294,7 +331,37 @@ const MOCK_DIAGNOSES = [
 let mockIndex = 0;
 
 // ── Build Claude message content ──────────────────────────────────────────────
-function buildUserMessage({ audioDescription, vehicleInfo, textDescription, images = [], videoFrames = [], additionalRecordings = [], obd2Data }) {
+function buildSpecsContext(vehicleSpecs, vehicleInfo, odometerKm, lastOilChangeKm) {
+  if (!vehicleSpecs) return null;
+  const sp = vehicleSpecs;
+  const lines = ['VEHICLE SPECIFICATIONS (use these for accuracy):'];
+  if (sp.engine) lines.push(`  Engine: ${sp.engine}`);
+  if (sp.horsepower) lines.push(`  Power: ${sp.horsepower} hp @ ${sp.torque ?? '?'} ${sp.torqueUnit || 'lb-ft'} torque`);
+  if (sp.transmission) lines.push(`  Transmission: ${sp.transmission}`);
+  if (sp.drivetrain) lines.push(`  Drivetrain: ${sp.drivetrain}`);
+  if (sp.fuelType) lines.push(`  Fuel: ${sp.fuelType}`);
+  if (sp.isEV) lines.push(`  THIS IS AN ELECTRIC VEHICLE — no oil, spark plugs, belts, or exhaust components`);
+  if (sp.isHybrid) lines.push(`  Hybrid powertrain`);
+  if (sp.oilType) lines.push(`  Oil: ${sp.oilType}${sp.oilCapacity_L ? `, capacity ${sp.oilCapacity_L} L` : ''}`);
+  if (sp.sparkPlugInterval_km) lines.push(`  Spark plug interval: ${sp.sparkPlugInterval_km.toLocaleString()} km`);
+  if (sp.timingChain != null) lines.push(`  Timing: ${sp.timingChain ? 'chain (no scheduled replacement)' : 'belt (check replacement interval)'}`);
+  if (sp.commonIssues?.length) lines.push(`  Common issues for this model: ${sp.commonIssues.join('; ')}`);
+  if (sp.notes) lines.push(`  Notes: ${sp.notes}`);
+
+  if (odometerKm) {
+    const unit = vehicleInfo?.odometerUnit === 'mi' ? ' (converted from miles)' : '';
+    lines.push(`  Odometer: ${Math.round(odometerKm).toLocaleString()} km${unit}`);
+  }
+  if (lastOilChangeKm != null && odometerKm) {
+    const ago = Math.max(0, Math.round(odometerKm - lastOilChangeKm));
+    lines.push(`  Last oil change: ${ago.toLocaleString()} km ago (at ${Math.round(lastOilChangeKm).toLocaleString()} km)`);
+  } else if (!sp.isEV) {
+    lines.push('  Last oil change: unknown');
+  }
+  return lines.join('\n');
+}
+
+function buildUserMessage({ audioDescription, vehicleInfo, vehicleSpecs, odometerKm, lastOilChangeKm, textDescription, images = [], videoFrames = [], additionalRecordings = [], obd2Data }) {
   const parts = ['=== VEHICLE DIAGNOSIS REQUEST ==='];
 
   if (vehicleInfo?.make) {
@@ -302,6 +369,12 @@ function buildUserMessage({ audioDescription, vehicleInfo, textDescription, imag
     const trimStr    = vehicleInfo.trim ? ` (${vehicleInfo.trim} trim)` : '';
     parts.push(`\nVEHICLE: ${vehicleStr}${trimStr}`);
   }
+
+  // Specs sent by the client take priority; otherwise look up from local database
+  const specs = vehicleSpecs
+    || (vehicleInfo?.make ? getSpecsForVehicle(vehicleInfo.make, vehicleInfo.model, vehicleInfo.year, vehicleInfo.trim) : null);
+  const specsContext = buildSpecsContext(specs, vehicleInfo, odometerKm, lastOilChangeKm);
+  if (specsContext) parts.push(`\n${specsContext}`);
 
   // Primary recording — label it if additional recordings also exist
   if (additionalRecordings.length > 0) {
@@ -373,7 +446,7 @@ function buildUserMessage({ audioDescription, vehicleInfo, textDescription, imag
 }
 
 // ── Diagnose function ─────────────────────────────────────────────────────────
-async function diagnoseWithClaude({ audioDescription, vehicleInfo, textDescription, images, videoFrames, additionalRecordings, obd2Data }) {
+async function diagnoseWithClaude({ audioDescription, vehicleInfo, vehicleSpecs, odometerKm, lastOilChangeKm, textDescription, images, videoFrames, additionalRecordings, obd2Data }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey || !apiKey.trim()) {
@@ -384,7 +457,7 @@ async function diagnoseWithClaude({ audioDescription, vehicleInfo, textDescripti
   }
 
   const client  = new Anthropic({ apiKey });
-  const content = buildUserMessage({ audioDescription, vehicleInfo, textDescription, images, videoFrames, additionalRecordings, obd2Data });
+  const content = buildUserMessage({ audioDescription, vehicleInfo, vehicleSpecs, odometerKm, lastOilChangeKm, textDescription, images, videoFrames, additionalRecordings, obd2Data });
 
   const message = await client.messages.create({
     model:      'claude-sonnet-4-6',
@@ -421,6 +494,9 @@ app.post('/api/diagnose', async (req, res) => {
       videoFrames          = [],  // [base64 string] optional
       additionalRecordings = [],  // [{ label, description, duration }] optional
       obd2Data,                   // { sensors: {...}, faultCodes: [...] } optional
+      vehicleSpecs,               // specs object from frontend vehicleSpecs.js optional
+      odometerKm,                 // current odometer in km optional
+      lastOilChangeKm,            // odometer at last oil change (km) optional
     } = req.body;
 
     if (!description) return res.status(400).json({ error: 'description required' });
@@ -435,6 +511,9 @@ app.post('/api/diagnose', async (req, res) => {
     const result = await diagnoseWithClaude({
       audioDescription: description,
       vehicleInfo,
+      vehicleSpecs,
+      odometerKm,
+      lastOilChangeKm,
       textDescription,
       images,
       videoFrames,
@@ -593,6 +672,95 @@ If the photo does not clearly show a vehicle, set isVehicle to false.`,
     res.json({ ok: true, result });
   } catch (err) {
     console.error('[vehicle-photo]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Vehicle specs + NHTSA recalls ─────────────────────────────────────────────
+
+const RECALL_TTL_MS = 24 * 60 * 60 * 1000; // 24h in-memory cache
+const recallCache   = new Map();           // "make|model|year" → { recalls, fetchedAt }
+
+// Demo-mode recalls (shown when no Anthropic key — keeps the Alerts tab demoable)
+const MOCK_RECALLS = [
+  {
+    nhtsaNumber:  '23V123000',
+    component:    'FUEL SYSTEM, GASOLINE: DELIVERY: FUEL PUMP',
+    summary:      'The low-pressure fuel pump inside the fuel tank may fail. A failing fuel pump can cause the engine to stall while driving, increasing the risk of a crash.',
+    consequence:  'An engine stall while driving increases the risk of a crash.',
+    reportedDate: '2023-03-01',
+  },
+  {
+    nhtsaNumber:  '22V456000',
+    component:    'ELECTRICAL SYSTEM: SOFTWARE',
+    summary:      'The rearview camera image may not display due to a software error. A missing rearview image reduces the driver\'s view behind the vehicle.',
+    consequence:  'Reduced rear visibility while reversing increases the risk of a crash.',
+    reportedDate: '2022-08-15',
+  },
+];
+
+function httpsGetJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'FixItAI/1.0' } }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); }
+        catch { reject(new Error('Non-JSON response from ' + url.split('?')[0])); }
+      });
+    }).on('error', reject);
+  });
+}
+
+async function fetchRecallsNHTSA(make, model, year) {
+  const url = `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&modelYear=${encodeURIComponent(year)}`;
+  const data = await Promise.race([
+    httpsGetJson(url),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('NHTSA timeout')), 5000)),
+  ]);
+  return (data.results || []).map(r => ({
+    nhtsaNumber:  r.NHTSACampaignNumber || null,
+    component:    r.Component || null,
+    summary:      r.Summary || null,
+    consequence:  r.Consequence || null,
+    reportedDate: r.ReportReceivedDate || null,
+  }));
+}
+
+async function getRecallsCached(make, model, year) {
+  const key    = `${make}|${model}|${year}`.toLowerCase();
+  const cached = recallCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < RECALL_TTL_MS) return cached.recalls;
+  try {
+    const recalls = await fetchRecallsNHTSA(make, model, year);
+    recallCache.set(key, { recalls, fetchedAt: Date.now() });
+    return recalls;
+  } catch (err) {
+    console.warn(`[recalls] NHTSA fetch failed (${err.message}) — serving ${cached ? 'stale cache' : 'empty list'}`);
+    return cached?.recalls || [];
+  }
+}
+
+// GET /api/vehicle-specs?make=&model=&year=&trim= → { ok, specs, recalls }
+app.get('/api/vehicle-specs', async (req, res) => {
+  try {
+    const { make, model, year, trim } = req.query;
+    if (!make || !model) return res.status(400).json({ error: 'make and model are required' });
+
+    const specs    = getSpecsForVehicle(make, model, year, trim); // null is fine — no 500
+    const demoMode = !(process.env.ANTHROPIC_API_KEY?.trim());
+
+    let recalls = [];
+    if (demoMode) {
+      recalls = MOCK_RECALLS;
+    } else if (year) {
+      recalls = await getRecallsCached(make, model, year);
+    }
+
+    console.log(`[vehicle-specs] ${year || '?'} ${make} ${model}${trim ? ` ${trim}` : ''} → specs: ${specs ? 'found' : 'none'}, recalls: ${recalls.length}${demoMode ? ' (demo)' : ''}`);
+    res.json({ ok: true, specs, recalls });
+  } catch (err) {
+    console.error('[vehicle-specs]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

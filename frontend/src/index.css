@@ -82,3 +82,97 @@ body {
 /* ── Utility ───────────────────────────────────────────────────────────────── */
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* ── Upgrade: global typography scale ─────────────────────────────────────── */
+:root {
+  --fs-vehicle-name: 22px;   /* vehicle name on Home/Vehicle tabs */
+  --fs-section: 11px;        /* uppercase section headers */
+  --fs-body: 15px;           /* body text */
+  --fs-stat-label: 11px;     /* stat labels */
+  --fs-stat-value: 17px;     /* stat values */
+}
+
+.home-hero__name { font-size: var(--fs-vehicle-name); font-weight: 700; color: var(--text-primary); }
+
+.home-section-title,
+.maint-section__title,
+.live-section-title,
+.alerts-diagnoses__title,
+.veh-section__title {
+  font-size: var(--fs-section);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+}
+
+/* ── Upgrade: global skeleton shimmer ─────────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton {
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+/* ── Upgrade: screen transitions (250ms fade) ─────────────────────────────── */
+@keyframes screen-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.home-tab, .live-tab, .maint-tab, .alerts-tab, .veh-tab {
+  animation: screen-fade-in 250ms ease backwards;
+}
+
+/* ── Upgrade: staggered card entrances (50ms per card via --i) ────────────── */
+@keyframes card-stagger-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.home-pill, .home-spec-chip, .home-action,
+.maint-due__row, .live-fault-card,
+.alert-card, .alert-generic {
+  animation: card-stagger-in 0.35s ease backwards;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+
+/* ── Upgrade: interactive card hover (desktop only) ───────────────────────── */
+@media (hover: hover) {
+  .alert-card:hover,
+  .home-history-card:hover,
+  .svc-record-card:hover,
+  .mech-card:hover {
+    transform: scale(1.01);
+    transition: transform 0.15s ease;
+  }
+}
+
+/* ── Upgrade: processing pulse (Diagnose / Analyzing) ─────────────────────── */
+@keyframes processing-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.06); opacity: 0.85; }
+}
+.pulse-processing {
+  animation: processing-pulse 1.2s ease-in-out infinite;
+}
+
+/* ── Health score bar (utility) ───────────────────────────────────────────── */
+.health-bar-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.health-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}

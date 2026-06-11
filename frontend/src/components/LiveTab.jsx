@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import CircularGauge from './CircularGauge.jsx';
 import './LiveTab.css';
+import { rateReading, readingMeaning } from '../utils/sensorRanges.js';
+import { getDtcInfo } from '../data/dtcCatalog.js';
+import { healthTier } from '../utils/healthScore.js';
+
+// Status glyphs for sensor readings
+const STATUS_GLYPH = {
+  ok:   { icon: '✓', cls: 'live-status--ok',   label: 'Normal' },
+  warn: { icon: '⚠', cls: 'live-status--warn', label: 'Watch' },
+  bad:  { icon: '✗', cls: 'live-status--bad',  label: 'Problem' },
+};
 
 // ── Demo data generator ─────────────────────────────────────────────────────
 function makeDemoData(t) {
@@ -39,8 +49,11 @@ export default function LiveTab({
   obd2Connected, obd2DeviceName, obd2Connecting,
   onObd2Connect, onObd2ConnectMock, onObd2Disconnect,
   units = 'metric',
+  healthScore = 85,
+  onFindMechanicForCode,
 }) {
   const [demo, setDemo]     = useState(null);
+  const [expandedSensor, setExpandedSensor] = useState(null);
   const demoT = useRef(0);
   const isChrome = !!(navigator.bluetooth);
 
@@ -66,12 +79,35 @@ export default function LiveTab({
   function speedMax() { return units === 'imperial' ? 140 : 220; }
   function speedUnit() { return units === 'imperial' ? 'MPH' : 'KM/H'; }
 
+  // Real OBD2 data uses speed/throttle/maf; the demo generator uses
+  // vehicleSpeed/throttlePos/mafRate — read both so each source works.
+  const rawSpeed    = data?.vehicleSpeed ?? data?.speed ?? 0;
+  const rawThrottle = data?.throttlePos ?? data?.throttle ?? 0;
+  const rawMaf      = data?.mafRate ?? data?.maf;
+
   const rpm   = data?.rpm ?? 0;
-  const speed = speedVal(data?.vehicleSpeed ?? 0);
+  const speed = speedVal(rawSpeed);
   const coolant = tempC(data?.coolantTemp);
   const battery = data?.batteryVoltage ?? 0;
   const load  = data?.engineLoad ?? 0;
-  const throttle = data?.throttlePos ?? 0;
+  const throttle = rawThrottle;
+
+  const tier = healthTier(healthScore);
+  const rateCtx = { speed: rawSpeed, running: (data?.rpm ?? 0) > 300 };
+
+  // All-sensors rows with normal-range status + plain-English meaning on tap
+  const sensorRows = [
+    { key: 'rpm',            label: 'Engine RPM',       value: data?.rpm,        fmt: v => Math.round(v).toLocaleString(), unit: '' },
+    { key: 'coolantTemp',    label: 'Coolant Temp',     value: data?.coolantTemp, display: v => Math.round(tempC(v)), unit: tempUnit() },
+    { key: 'batteryVoltage', label: 'Battery Voltage',  value: data?.batteryVoltage, fmt: v => v.toFixed(1), unit: 'V' },
+    { key: 'engineLoad',     label: 'Engine Load',      value: data?.engineLoad, fmt: v => Math.round(v), unit: '%' },
+    { key: 'throttle',       label: 'Throttle Position', value: rawThrottle || (data ? rawThrottle : undefined), fmt: v => Math.round(v), unit: '%' },
+    { key: 'fuelTrimST',     label: 'Short Fuel Trim',  value: data?.fuelTrimST, fmt: v => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)), unit: '%' },
+    { key: 'fuelTrimLT',     label: 'Long Fuel Trim',   value: data?.fuelTrimLT, fmt: v => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)), unit: '%' },
+    { key: 'intakeTemp',     label: 'Intake Air Temp',  value: data?.intakeTemp, display: v => Math.round(tempC(v)), unit: tempUnit() },
+    { key: 'maf',            label: 'MAF Rate',         value: rawMaf,           fmt: v => v.toFixed(2), unit: 'g/s' },
+    { key: 'o2Voltage',      label: 'O₂ Sensor B1S1',  value: data?.o2Voltage,  fmt: v => v.toFixed(3), unit: 'V' },
+  ];
 
   return (
     <div className="live-tab">
@@ -83,6 +119,12 @@ export default function LiveTab({
             ? <span className="live-header__badge live-header__badge--on">● {obd2DeviceName || 'Connected'}</span>
             : <span className="live-header__badge live-header__badge--demo">DEMO MODE</span>
           }
+          {obd2Connected && (
+            <span className="live-health-chip" style={{ borderColor: tier.color }}>
+              <span className="live-health-chip__score" style={{ color: tier.color }}>{healthScore}</span>
+              <span className="live-health-chip__label">{tier.label}</span>
+            </span>
+          )}
         </div>
         <div className="live-header__actions">
           {obd2Connected
@@ -193,28 +235,47 @@ export default function LiveTab({
         </div>
       </div>
 
-      {/* ── Data table ── */}
+      {/* ── Data table with normal-range statuses ── */}
       <div className="live-table-section">
         <h2 className="live-section-title">All Sensors</h2>
         <div className="live-table">
-          {[
-            { label: 'Short Fuel Trim', value: data?.fuelTrimST, fmt: v => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)), unit: '%', warn: Math.abs(data?.fuelTrimST ?? 0) > 10, danger: Math.abs(data?.fuelTrimST ?? 0) > 20 },
-            { label: 'Long Fuel Trim',  value: data?.fuelTrimLT, fmt: v => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)), unit: '%', warn: Math.abs(data?.fuelTrimLT ?? 0) > 10, danger: Math.abs(data?.fuelTrimLT ?? 0) > 20 },
-            { label: 'Intake Air Temp', value: data?.intakeTemp !== undefined ? tempC(data.intakeTemp) : undefined, fmt: v => Math.round(v), unit: tempUnit() },
-            { label: 'MAF Rate',        value: data?.mafRate,        fmt: v => v.toFixed(2), unit: 'g/s' },
-            { label: 'O₂ Sensor B1S1', value: data?.o2Voltage,     fmt: v => v.toFixed(3), unit: 'V' },
-          ].map(row => (
-            <div key={row.label} className={`live-row${row.danger ? ' live-row--danger' : row.warn ? ' live-row--warn' : ''}`}>
-              <span className="live-row__label">{row.label}</span>
-              <span className="live-row__value">
-                {row.value !== null && row.value !== undefined
-                  ? <>{row.fmt(row.value)} <span className="live-row__unit">{row.unit}</span></>
-                  : <span className="live-row__nil">—</span>
-                }
-              </span>
-            </div>
-          ))}
+          {sensorRows.map(row => {
+            const hasValue = row.value !== null && row.value !== undefined;
+            const status   = hasValue ? rateReading(row.key, row.value, rateCtx) : null;
+            const glyph    = status ? STATUS_GLYPH[status] : null;
+            const isOpen   = expandedSensor === row.key;
+            const shown    = hasValue
+              ? (row.display ? row.display(row.value) : row.fmt(row.value))
+              : null;
+            return (
+              <div
+                key={row.key}
+                className={`live-row live-row--tappable${status === 'bad' ? ' live-row--danger' : status === 'warn' ? ' live-row--warn' : ''}`}
+                onClick={() => setExpandedSensor(prev => prev === row.key ? null : row.key)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => e.key === 'Enter' && setExpandedSensor(prev => prev === row.key ? null : row.key)}
+              >
+                <div className="live-row__main">
+                  <span className="live-row__label">
+                    {glyph && <span className={`live-status ${glyph.cls}`} aria-label={glyph.label}>{glyph.icon}</span>}
+                    {row.label}
+                  </span>
+                  <span className="live-row__value">
+                    {hasValue
+                      ? <>{shown} <span className="live-row__unit">{row.unit}</span></>
+                      : <span className="live-row__nil">—</span>
+                    }
+                  </span>
+                </div>
+                {isOpen && (
+                  <p className="live-row__meaning">{readingMeaning(row.key, status)}</p>
+                )}
+              </div>
+            );
+          })}
         </div>
+        <p className="live-table-hint">Tap any reading for a plain-English explanation</p>
       </div>
 
       {/* ── Fault codes ── */}
@@ -222,12 +283,33 @@ export default function LiveTab({
         <div className="live-faults-section">
           <h2 className="live-section-title">Fault Codes ({faultCodes.length})</h2>
           <div className="live-faults">
-            {faultCodes.map(fc => (
-              <div key={fc.code} className="live-fault">
-                <span className="live-fault__code">{fc.code}</span>
-                <span className="live-fault__desc">{fc.description || 'Unknown fault code'}</span>
-              </div>
-            ))}
+            {faultCodes.map((fc, i) => {
+              const info = getDtcInfo(fc.code);
+              return (
+                <div key={fc.code} className={`live-fault-card live-fault-card--${info.severity}`} style={{ '--i': i }}>
+                  <div className="live-fault-card__top">
+                    <span className="live-fault-card__code">{fc.code}</span>
+                    <span className={`live-fault-card__sev live-fault-card__sev--${info.severity}`}>
+                      {info.severity === 'critical' ? 'Critical' : info.severity === 'warning' ? 'Warning' : 'Info'}
+                    </span>
+                    {(fc.type === 'pending' || fc.pending) && (
+                      <span className="live-fault-card__pending">Pending</span>
+                    )}
+                  </div>
+                  <p className="live-fault-card__name">{fc.description || info.name}</p>
+                  <p className="live-fault-card__cause">{info.cause}</p>
+                  {onFindMechanicForCode && (
+                    <button
+                      className="live-fault-card__btn"
+                      onClick={() => onFindMechanicForCode(fc)}
+                      type="button"
+                    >
+                      🔧 Find Mechanic for This
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

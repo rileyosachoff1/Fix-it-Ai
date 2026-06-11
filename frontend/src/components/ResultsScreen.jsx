@@ -8,6 +8,27 @@ function urgencyLabel(u) {
   return                            { text: 'MONITOR',       cls: 'badge--ok'     };
 }
 
+// Currency prefix — old saved diagnoses may still be USD
+function costPrefix(estimatedCost) {
+  return (estimatedCost?.currency || 'USD') === 'CAD' ? 'CA$' : '$';
+}
+
+// DIY difficulty → emoji + label per spec
+function diyInfo(level) {
+  if (level === 'easy')     return { icon: '🟢', text: 'Basic DIY' };
+  if (level === 'moderate') return { icon: '🟡', text: 'Advanced DIY' };
+  if (level === 'hard')     return { icon: '🔴', text: 'Professional Only' };
+  return null;
+}
+
+function repairTimeLabel(rt) {
+  if (!rt || rt.min == null) return null;
+  const fmt = h => (h % 1 === 0 ? String(h) : h.toFixed(1));
+  return rt.max != null && rt.max !== rt.min
+    ? `~${fmt(rt.min)}–${fmt(rt.max)} hours at a shop`
+    : `~${fmt(rt.min)} hour${rt.min === 1 ? '' : 's'} at a shop`;
+}
+
 // SVG confidence dial — circle radius 28, circumference ≈ 175.9
 const CIRC = 2 * Math.PI * 28;
 
@@ -46,6 +67,11 @@ function LikelihoodDot({ level }) {
 // estimatedCost{min,max}, ifIgnored, recommendedAction
 function PrimaryCard({ d }) {
   const badge = urgencyLabel(d.urgency);
+  const confPct   = Math.max(0, Math.min(100, d.confidence ?? 0));
+  const confColor = confPct >= 75 ? 'var(--success)' : confPct >= 50 ? 'var(--warning)' : 'var(--danger)';
+  const diy       = diyInfo(d.diyDifficulty);
+  const repairTime = repairTimeLabel(d.repairTimeHours);
+
   return (
     <div className="res__card res__card--primary">
       {/* Top row: title + dial */}
@@ -58,9 +84,45 @@ function PrimaryCard({ d }) {
         <ConfidenceDial value={d.confidence} />
       </div>
 
+      {/* Visual confidence bar */}
+      <div className="res__conf-bar" aria-hidden="true">
+        <div className="res__conf-bar-track">
+          <div className="res__conf-bar-fill" style={{ width: `${confPct}%`, background: confColor }} />
+        </div>
+        <span className="res__conf-bar-label">{confPct}% confidence</span>
+      </div>
+
       {/* Sound/visual description */}
       {d.soundDescription && (
         <p className="res__sound-desc">{d.soundDescription}</p>
+      )}
+
+      {/* Why this diagnosis */}
+      {d.whyThis && (
+        <div className="res__why">
+          <span className="res__why-label">WHY THIS?</span>
+          <p className="res__why-text">{d.whyThis}</p>
+        </div>
+      )}
+
+      {/* Common-for-this-vehicle note */}
+      {d.commonForVehicle && (
+        <div className="res__common-note">
+          <span aria-hidden="true">🚗</span>
+          <span>{d.commonForVehicle}</span>
+        </div>
+      )}
+
+      {/* Repair time + DIY difficulty chips */}
+      {(repairTime || diy) && (
+        <div className="res__chips">
+          {repairTime && (
+            <span className="res__chip">⏱ {repairTime}</span>
+          )}
+          {diy && (
+            <span className="res__chip">{diy.icon} {diy.text}</span>
+          )}
+        </div>
       )}
 
       {/* Causes */}
@@ -91,7 +153,7 @@ function PrimaryCard({ d }) {
           <div className="res__cost-row">
             <span className="res__cost-label">EST. REPAIR COST</span>
             <span className="res__cost-range">
-              ${d.estimatedCost.min?.toLocaleString()}–${d.estimatedCost.max?.toLocaleString()}
+              {costPrefix(d.estimatedCost)}{d.estimatedCost.min?.toLocaleString()}–{costPrefix(d.estimatedCost)}{d.estimatedCost.max?.toLocaleString()}
             </span>
           </div>
         )}
@@ -129,7 +191,7 @@ function AltCard({ d, index }) {
       <div className="res__alt-footer">
         {d.estimatedCost && (
           <span className="res__alt-cost">
-            ${d.estimatedCost.min?.toLocaleString()}–${d.estimatedCost.max?.toLocaleString()}
+            {costPrefix(d.estimatedCost)}{d.estimatedCost.min?.toLocaleString()}–{costPrefix(d.estimatedCost)}{d.estimatedCost.max?.toLocaleString()}
           </span>
         )}
         {d.ruleOut && (

@@ -18,7 +18,8 @@ const PHASE = {
 
 export default function DiagnoseModal({
   isOpen, onClose,
-  vehicleInfo, location, onLocationChange,
+  vehicleInfo, vehicleSpecs, odometerKm, lastOilChangeKm,
+  location, onLocationChange,
   obd2Connected,
   onDiagnosisComplete,
   onFindMechanic,
@@ -84,6 +85,9 @@ export default function DiagnoseModal({
         description:          data.primaryDescription,
         duration:             data.primaryDuration,
         vehicleInfo:          vehicleInfo?.make ? vehicleInfo : undefined,
+        vehicleSpecs:         vehicleSpecs || undefined,
+        odometerKm:           odometerKm || undefined,
+        lastOilChangeKm:      lastOilChangeKm ?? undefined,
         textDescription:      data.textDescription,
         images:               data.images,
         videoFrames:          data.videoFrames,
@@ -98,7 +102,7 @@ export default function DiagnoseModal({
       setPhase(PHASE.GUIDED);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleInfo, location]);
+  }, [vehicleInfo, vehicleSpecs, odometerKm, lastOilChangeKm, location]);
 
   // ── Skip → Recording ────────────────────────────────────────────────────
   const handleSkipToRecord = useCallback(async () => {
@@ -140,6 +144,9 @@ export default function DiagnoseModal({
         description:     audioResult.description,
         duration:        audioResult.duration,
         vehicleInfo:     vehicleInfo?.make ? vehicleInfo : undefined,
+        vehicleSpecs:    vehicleSpecs || undefined,
+        odometerKm:      odometerKm || undefined,
+        lastOilChangeKm: lastOilChangeKm ?? undefined,
         textDescription: snap.textDescription || undefined,
         images:          snap.photos.map(p => ({ base64: p.base64, mediaType: p.mediaType || 'image/jpeg' })),
         videoFrames:     snap.videoFrames,
@@ -155,7 +162,7 @@ export default function DiagnoseModal({
       setPhase(PHASE.GUIDED);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicleInfo, location, mediaData, obd2Connected]);
+  }, [vehicleInfo, vehicleSpecs, odometerKm, lastOilChangeKm, location, mediaData, obd2Connected]);
 
   const handleCancelRecording = useCallback(async () => {
     await audioService.cancel();

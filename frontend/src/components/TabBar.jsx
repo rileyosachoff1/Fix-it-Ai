@@ -53,7 +53,7 @@ const TABS = [
   },
 ];
 
-export default function TabBar({ activeTab, onTabChange, showFAB, onDiagnosePress, alertCount = 0 }) {
+export default function TabBar({ activeTab, onTabChange, showFAB, onDiagnosePress, alertCount = 0, hasUnreadAlerts = false }) {
   return (
     <>
       {showFAB && (
@@ -80,6 +80,12 @@ export default function TabBar({ activeTab, onTabChange, showFAB, onDiagnosePres
             <span className="tab-bar__icon">
               {tab.id === 'alerts' && alertCount > 0 && (
                 <span className="tab-bar__badge">{alertCount > 9 ? '9+' : alertCount}</span>
+              )}
+              {tab.id === 'alerts' && hasUnreadAlerts && alertCount === 0 && (
+                <span className="tab-bar__unread-dot" aria-label="Unread alerts" />
+              )}
+              {tab.id === 'alerts' && hasUnreadAlerts && alertCount > 0 && (
+                <span className="tab-bar__unread-dot tab-bar__unread-dot--with-badge" aria-hidden="true" />
               )}
               {tab.icon}
             </span>
