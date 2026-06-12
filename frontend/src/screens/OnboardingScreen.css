@@ -1,0 +1,120 @@
+.onboarding-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 32px calc(40px + env(safe-area-inset-bottom));
+  z-index: 1000;
+}
+
+.onboarding-skip {
+  position: absolute;
+  top: calc(24px + env(safe-area-inset-top));
+  right: 24px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 8px;
+}
+
+.onboarding-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 20px;
+  max-width: 320px;
+  animation: onboarding-slide-in 0.3s ease;
+}
+
+@keyframes onboarding-slide-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.onboarding-icon {
+  font-size: 72px;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.onboarding-icon.pulse {
+  animation: onboarding-icon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes onboarding-icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.12); }
+}
+
+.onboarding-headline {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.onboarding-body {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.onboarding-dots {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.onboarding-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: var(--border);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.onboarding-dot.active {
+  width: 24px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.onboarding-cta {
+  width: 100%;
+  max-width: 320px;
+  padding: 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.onboarding-cta:active {
+  opacity: 0.85;
+  transform: scale(0.98);
+}
+
+.onboarding-tagline {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}

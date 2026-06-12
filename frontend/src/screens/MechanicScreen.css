@@ -1156,3 +1156,57 @@
   font-weight: 600;
   color: var(--accent-bright, #409cff);
 }
+
+/* ── Redesign: gold "Own a Shop?" CTA ─────────────────────────────────────── */
+.mech-own-shop-cta {
+  margin: 24px 0 8px;
+  padding: 22px 20px;
+  border-radius: 20px;
+  text-align: center;
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(255, 200, 60, 0.10) 100%);
+  border: 1px solid rgba(255, 200, 60, 0.30);
+  box-shadow: 0 2px 16px var(--shadow-color);
+}
+.mech-own-shop-cta__star {
+  font-size: 22px;
+  color: #ffc83c;
+  margin-bottom: 6px;
+}
+.mech-own-shop-cta__title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.mech-own-shop-cta__sub {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+.mech-own-shop-cta__btn {
+  padding: 12px 22px;
+  border: none;
+  border-radius: 12px;
+  background: #ffc83c;
+  color: #3a2c00;
+  font-size: 14.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.mech-own-shop-cta__btn:active { transform: scale(0.97); opacity: 0.9; }
+
+/* ── Embedded (AutoShop tab) mode — renders inside the tab layout ─────────── */
+.mech-screen--embedded {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  min-height: calc(100svh - 72px);
+  overflow: visible;
+}
+.mech-screen--embedded .mech-body {
+  padding-bottom: 100px;
+}

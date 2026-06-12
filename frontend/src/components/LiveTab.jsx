@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import CircularGauge from './CircularGauge.jsx';
 import './LiveTab.css';
 import { rateReading, readingMeaning } from '../utils/sensorRanges.js';
@@ -12,22 +12,31 @@ const STATUS_GLYPH = {
   bad:  { icon: '✗', cls: 'live-status--bad',  label: 'Problem' },
 };
 
-// ── Demo data generator ─────────────────────────────────────────────────────
-function makeDemoData(t) {
-  const warmup = Math.min(1, t / 30);
-  return {
-    rpm:          830 + Math.sin(t * 1.7) * 80 + Math.sin(t * 3.1) * 30 + (Math.random() - 0.5) * 40,
-    vehicleSpeed: 0,
-    coolantTemp:  20 + warmup * 70 + (Math.random() - 0.5) * 2,
-    batteryVoltage: 14.1 + Math.sin(t * 0.6) * 0.15 + (Math.random() - 0.5) * 0.05,
-    engineLoad:   17 + Math.sin(t * 0.8) * 5 + (Math.random() - 0.5) * 3,
-    throttlePos:  8  + Math.sin(t * 1.1) * 3 + (Math.random() - 0.5) * 2,
-    fuelTrimST:   0.5 + Math.sin(t * 0.4) * 1.5,
-    fuelTrimLT:   1.2 + Math.sin(t * 0.2) * 0.8,
-    intakeTemp:   22 + warmup * 8,
-    mafRate:      4.5 + Math.sin(t * 0.9) * 1.2,
-    o2Voltage:    0.45 + Math.sin(t * 2.1) * 0.38,
-  };
+// ── RPM sparkline (last 30 readings, pure SVG) ──────────────────────────────
+function RpmSparkline({ history }) {
+  const W = 320, H = 64;
+  if (history.length < 2) {
+    return <div className="live-spark__placeholder">Collecting engine data…</div>;
+  }
+  const max = Math.max(...history, 1000);
+  const pts = history.map((v, i) => {
+    const x = (i / (history.length - 1)) * W;
+    const y = H - (Math.max(0, v) / max) * (H - 8) - 4;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="live-spark__svg" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="0" y1={H - 1} x2={W} y2={H - 1} stroke="var(--divider)" strokeWidth="1" />
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke="var(--success)"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
 function batteryColor(v) {
@@ -52,23 +61,39 @@ export default function LiveTab({
   healthScore = 85,
   onFindMechanicForCode,
 }) {
-  const [demo, setDemo]     = useState(null);
   const [expandedSensor, setExpandedSensor] = useState(null);
-  const demoT = useRef(0);
   const isChrome = !!(navigator.bluetooth);
 
-  // Demo animation when not connected
+  // RPM history for the live line graph (last 30 readings)
+  const [rpmHistory, setRpmHistory] = useState([]);
   useEffect(() => {
-    if (obd2Connected) { setDemo(null); return; }
-    demoT.current = 0;
-    const id = setInterval(() => {
-      demoT.current += 0.12;
-      setDemo(makeDemoData(demoT.current));
-    }, 120);
-    return () => clearInterval(id);
-  }, [obd2Connected]);
+    if (!obd2Connected) { setRpmHistory([]); return; }
+    if (liveData?.rpm == null) return;
+    setRpmHistory(prev => [...prev.slice(-29), liveData.rpm]);
+  }, [liveData, obd2Connected]);
 
-  const data = obd2Connected ? liveData : demo;
+  // Scanner waitlist modal
+  const [showWaitlist,   setShowWaitlist]   = useState(false);
+  const [waitlistEmail,  setWaitlistEmail]  = useState('');
+  const [waitlistState,  setWaitlistState]  = useState('idle'); // idle | submitting | done | error
+
+  async function handleWaitlistSubmit() {
+    if (!waitlistEmail.includes('@')) { setWaitlistState('error'); return; }
+    setWaitlistState('submitting');
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: waitlistEmail.trim() }),
+      });
+      if (!res.ok) throw new Error('failed');
+      setWaitlistState('done');
+    } catch {
+      setWaitlistState('error');
+    }
+  }
+
+  const data = obd2Connected ? liveData : null;
 
   function tempC(c) {
     if (c === null || c === undefined) return null;
@@ -127,18 +152,53 @@ export default function LiveTab({
           )}
         </div>
         <div className="live-header__actions">
-          {obd2Connected
-            ? <button className="live-header__btn live-header__btn--disconnect" onClick={onObd2Disconnect}>Disconnect</button>
-            : obd2Connecting
-              ? <button className="live-header__btn" disabled>Connecting…</button>
-              : <>
-                  {isChrome && <button className="live-header__btn" onClick={onObd2Connect}>Connect OBD2</button>}
-                  <button className="live-header__btn live-header__btn--demo" onClick={onObd2ConnectMock}>Load Demo</button>
-                </>
-          }
+          {obd2Connected && (
+            <button className="live-header__btn live-header__btn--disconnect" onClick={onObd2Disconnect}>Disconnect</button>
+          )}
         </div>
       </div>
 
+      {/* ── Disconnected: connect-your-scanner CTA ── */}
+      {!obd2Connected && (
+        <div className="live-disconnected">
+          <div className="live-disconnected-visual" aria-hidden="true">
+            <div className="scanner-ring scanner-ring-1" />
+            <div className="scanner-ring scanner-ring-2" />
+            <div className="scanner-ring scanner-ring-3" />
+            <span className="scanner-icon">🔌</span>
+          </div>
+
+          <h2 className="live-disconnected-title">Connect Your OBD2 Scanner</h2>
+          <p className="live-disconnected-body">
+            See live engine data, detect issues in real time, and get more accurate AI diagnoses.
+          </p>
+
+          {obd2Connecting ? (
+            <button className="live-connect-btn" disabled>Connecting…</button>
+          ) : isChrome ? (
+            <button className="live-connect-btn" onClick={onObd2Connect}>Connect OBD2 Scanner</button>
+          ) : (
+            <button className="live-connect-btn" onClick={onObd2ConnectMock}>Try Demo Mode</button>
+          )}
+          {isChrome && !obd2Connecting && (
+            <button className="live-demo-link" onClick={onObd2ConnectMock} type="button">
+              No scanner handy? Try demo mode →
+            </button>
+          )}
+
+          <div className="live-waitlist-card">
+            <div className="live-waitlist-left">
+              <span className="live-waitlist-label">COMING SOON</span>
+              <p className="live-waitlist-text">FixIt AI OBD2 Scanner — plug in, pair once, works forever.</p>
+            </div>
+            <button className="live-waitlist-btn" onClick={() => setShowWaitlist(true)} type="button">
+              Join Waitlist
+            </button>
+          </div>
+        </div>
+      )}
+
+      {obd2Connected && (<>
       {/* ── Main gauges ── */}
       <div className="live-gauges-main">
         <div className="live-gauge-main">
@@ -235,11 +295,20 @@ export default function LiveTab({
         </div>
       </div>
 
-      {/* ── Data table with normal-range statuses ── */}
+      {/* ── RPM trend graph (last 30 readings) ── */}
+      <div className="live-spark">
+        <div className="live-spark__header">
+          <h2 className="live-section-title">RPM Trend</h2>
+          <span className="live-spark__current">{data?.rpm != null ? `${Math.round(data.rpm).toLocaleString()} RPM` : '—'}</span>
+        </div>
+        <RpmSparkline history={rpmHistory} />
+      </div>
+
+      {/* ── Sensor card grid with normal-range statuses ── */}
       <div className="live-table-section">
         <h2 className="live-section-title">All Sensors</h2>
-        <div className="live-table">
-          {sensorRows.map(row => {
+        <div className="live-sensor-grid">
+          {sensorRows.map((row, i) => {
             const hasValue = row.value !== null && row.value !== undefined;
             const status   = hasValue ? rateReading(row.key, row.value, rateCtx) : null;
             const glyph    = status ? STATUS_GLYPH[status] : null;
@@ -248,30 +317,28 @@ export default function LiveTab({
               ? (row.display ? row.display(row.value) : row.fmt(row.value))
               : null;
             return (
-              <div
+              <button
                 key={row.key}
-                className={`live-row live-row--tappable${status === 'bad' ? ' live-row--danger' : status === 'warn' ? ' live-row--warn' : ''}`}
+                className={`live-sensor-card${status ? ` live-sensor-card--${status}` : ''}${isOpen ? ' live-sensor-card--open' : ''}`}
+                style={{ '--i': i }}
                 onClick={() => setExpandedSensor(prev => prev === row.key ? null : row.key)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && setExpandedSensor(prev => prev === row.key ? null : row.key)}
+                type="button"
               >
-                <div className="live-row__main">
-                  <span className="live-row__label">
-                    {glyph && <span className={`live-status ${glyph.cls}`} aria-label={glyph.label}>{glyph.icon}</span>}
-                    {row.label}
+                <span className="live-sensor-card__label">{row.label}</span>
+                <span className="live-sensor-card__value">
+                  {hasValue ? shown : '—'}
+                  {hasValue && row.unit && <span className="live-sensor-card__unit">{row.unit}</span>}
+                </span>
+                {glyph && (
+                  <span className={`live-sensor-card__status ${glyph.cls}`}>
+                    <span className="live-sensor-card__dot" aria-hidden="true" />
+                    {glyph.label}
                   </span>
-                  <span className="live-row__value">
-                    {hasValue
-                      ? <>{shown} <span className="live-row__unit">{row.unit}</span></>
-                      : <span className="live-row__nil">—</span>
-                    }
-                  </span>
-                </div>
-                {isOpen && (
-                  <p className="live-row__meaning">{readingMeaning(row.key, status)}</p>
                 )}
-              </div>
+                {isOpen && (
+                  <p className="live-sensor-card__meaning">{readingMeaning(row.key, status)}</p>
+                )}
+              </button>
             );
           })}
         </div>
@@ -310,6 +377,48 @@ export default function LiveTab({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+      </>)}
+
+      {/* ── Scanner waitlist modal ── */}
+      {showWaitlist && (
+        <div className="live-modal-overlay" onClick={() => setShowWaitlist(false)}>
+          <div className="live-modal-sheet" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Join the waitlist">
+            <div className="live-modal-sheet__handle" />
+            <h3 className="live-modal-sheet__title">Join the Waitlist</h3>
+            <p className="live-modal-sheet__sub">
+              Our scanner is coming soon — be first to know when the FixIt AI OBD2 Scanner ships.
+            </p>
+            {waitlistState === 'done' ? (
+              <div className="live-modal-sheet__done">
+                ✓ You're on the list! We'll notify you when the scanner ships.
+              </div>
+            ) : (
+              <>
+                <input
+                  className="live-modal-sheet__input"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={waitlistEmail}
+                  onChange={e => { setWaitlistEmail(e.target.value); if (waitlistState === 'error') setWaitlistState('idle'); }}
+                  aria-label="Email address"
+                />
+                {waitlistState === 'error' && (
+                  <p className="live-modal-sheet__error">Please enter a valid email address.</p>
+                )}
+                <button
+                  className="live-modal-sheet__submit"
+                  onClick={handleWaitlistSubmit}
+                  disabled={waitlistState === 'submitting'}
+                  type="button"
+                >
+                  {waitlistState === 'submitting' ? 'Joining…' : 'Notify Me'}
+                </button>
+              </>
+            )}
+            <button className="live-modal-sheet__close" onClick={() => setShowWaitlist(false)} type="button">Close</button>
           </div>
         </div>
       )}

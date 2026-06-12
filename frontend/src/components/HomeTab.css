@@ -823,3 +823,152 @@
   font-size: 12px;
   color: var(--warning);
 }
+
+/* ── Redesign: greeting header ─────────────────────────────────────────────── */
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
+}
+.home-header__greeting {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.home-header__sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+.home-header__btns {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.home-header__btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-card);
+  box-shadow: 0 2px 12px var(--shadow-color);
+  font-size: 17px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.home-header__btn:active { transform: scale(0.92); }
+
+/* ── Redesign: hero gauge ──────────────────────────────────────────────────── */
+.home-hero__gauge-wrap {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 50%;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* ── Redesign: gradient quick actions ──────────────────────────────────────── */
+.home-action {
+  min-height: 100px;
+  border-radius: 20px;
+  box-shadow: 0 2px 12px var(--shadow-color);
+  border: none;
+}
+.home-action__icon { font-size: 28px; }
+.home-action--diagnose {
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(10, 132, 255, 0.10) 100%);
+}
+.home-action--connect {
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(48, 209, 88, 0.10) 100%);
+}
+.home-action--mechanic {
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(255, 159, 10, 0.10) 100%);
+}
+.home-action--service {
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(255, 69, 58, 0.08) 100%);
+}
+
+/* ── Redesign: "Why FixIt AI?" differentiator strip ────────────────────────── */
+.home-why {
+  margin: 18px 0 0;
+  padding: 0 16px;
+}
+.home-why__title { margin-bottom: 10px; }
+.home-why__row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.home-why__row::-webkit-scrollbar { display: none; }
+.home-why__card {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 150px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border-radius: 16px;
+  animation: card-stagger-in 0.35s ease backwards;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+.home-why__icon { font-size: 24px; margin-bottom: 4px; }
+.home-why__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.home-why__desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.home-why__sub {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ── Silhouette in hero ───────────────────────────────────────────────────── */
+.home-hero__car--silhouette {
+  position: absolute;
+  inset: auto;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -62%);
+  width: min(340px, 86%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.home-hero__car--silhouette .vehicle-silhouette svg { max-width: 320px; max-height: 150px; }
+.home-hero__photo-edit--add {
+  font-size: 15px;
+}
+
+/* ── Header alerts bell + badge ───────────────────────────────────────────── */
+.header-alerts-btn { position: relative; }
+.header-alert-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 4px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1.4;
+}

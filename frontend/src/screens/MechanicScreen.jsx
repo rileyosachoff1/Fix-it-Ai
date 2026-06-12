@@ -2,7 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { findShopsNearLocation, logReferral, submitPartnerInquiry, buildDiagnosisMessage } from '../services/mechanicService.js';
 import { searchAddress } from '../services/addressService.js';
 import { getDtcInfo } from '../data/dtcCatalog.js';
+import ShopPlayerCard, { computeAttrs } from '../components/ui/ShopPlayerCard.jsx';
 import './MechanicScreen.css';
+
+// Sort options for the gamified shop list
+const SHOP_SORTS = [
+  { key: 'overall',  label: 'Overall' },
+  { key: 'speed',    label: 'Speed' },
+  { key: 'value',    label: 'Value' },
+  { key: 'distance', label: 'Distance' },
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function isMobileDevice() {
@@ -508,10 +517,9 @@ function SendDiagnosisSheet({ shop, message, onClose }) {
 }
 
 // ── Filter sheet ──────────────────────────────────────────────────────────────
-function FilterSheet({ radiusKm, partnersOnly, sortBy, onApply, onClose }) {
-  const [radius,       setRadius]       = useState(radiusKm);
-  const [onlyPartners, setOnlyPartners] = useState(partnersOnly);
-  const [sort,         setSort]         = useState(sortBy);
+function FilterSheet({ radiusKm, sortBy, onApply, onClose }) {
+  const [radius, setRadius] = useState(radiusKm);
+  const [sort,   setSort]   = useState(sortBy);
 
   return (
     <div className="mech-sheet-overlay" onClick={onClose}>
@@ -534,23 +542,6 @@ function FilterSheet({ radiusKm, partnersOnly, sortBy, onApply, onClose }) {
           ))}
         </div>
 
-        {/* Partners only toggle */}
-        <div className="mech-filter__toggle-row">
-          <div>
-            <p className="mech-filter__toggle-label">Partners only</p>
-            <p className="mech-filter__toggle-sub">Hide unverified OSM listings</p>
-          </div>
-          <button
-            className={`mech-filter__toggle${onlyPartners ? ' mech-filter__toggle--on' : ''}`}
-            onClick={() => setOnlyPartners(v => !v)}
-            role="switch"
-            aria-checked={onlyPartners}
-            aria-label="Show partner shops only"
-          >
-            <span className="mech-filter__toggle-knob" />
-          </button>
-        </div>
-
         {/* Sort by */}
         <p className="mech-sheet__section-label" style={{ marginTop: 20 }}>SORT BY</p>
         <div className="mech-filter__sort-row" role="group" aria-label="Sort by">
@@ -568,7 +559,7 @@ function FilterSheet({ radiusKm, partnersOnly, sortBy, onApply, onClose }) {
 
         <button
           className="mech-sheet__submit"
-          onClick={() => { onApply({ radius, partnersOnly: onlyPartners, sortBy: sort }); onClose(); }}
+          onClick={() => { onApply({ radius, sortBy: sort }); onClose(); }}
         >
           Apply Filters
         </button>
@@ -578,7 +569,7 @@ function FilterSheet({ radiusKm, partnersOnly, sortBy, onApply, onClose }) {
 }
 
 // ── Main MechanicScreen ───────────────────────────────────────────────────────
-export default function MechanicScreen({ locationCoords, location, vehicleInfo, diagnosis, dtcContext = null, initialServiceFilter = null, onBack }) {
+export default function MechanicScreen({ locationCoords, location, vehicleInfo, diagnosis, dtcContext = null, initialServiceFilter = null, onBack, embedded = false }) {
   // Resolved coordinates
   const [lat,            setLat]            = useState(locationCoords?.lat ?? null);
   const [lon,            setLon]            = useState(locationCoords?.lon ?? null);
@@ -596,9 +587,12 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
   const [error,   setError]   = useState(null);
 
   // Filters
-  const [radiusKm,     setRadiusKm]     = useState(25);
-  const [partnersOnly, setPartnersOnly] = useState(false);
-  const [sortBy,       setSortBy]       = useState('distance'); // 'distance' | 'rating'
+  const [radiusKm, setRadiusKm] = useState(25);
+  const [sortBy,   setSortBy]   = useState('distance'); // legacy filter sheet: 'distance' | 'rating'
+
+  // Gamified card state
+  const [shopSort,       setShopSort]       = useState('overall'); // overall | speed | value | distance
+  const [expandedShopId, setExpandedShopId] = useState(null);      // one expanded card at a time
 
   // UI sheets
   const [showFilter,     setShowFilter]     = useState(false);
@@ -661,11 +655,11 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
   }, [lat, lon]);
 
   // ── Apply filter changes ───────────────────────────────────────────────
-  function applyFilters({ radius, partnersOnly: po, sortBy: sb }) {
+  function applyFilters({ radius, sortBy: sb }) {
     const radiusChanged = radius !== radiusKm;
     setRadiusKm(radius);
-    setPartnersOnly(po);
     setSortBy(sb);
+    setShopSort(sb === 'rating' ? 'overall' : 'distance');
     if (radiusChanged && lat != null && lon != null) doSearch(lat, lon, radius);
   }
 
@@ -702,6 +696,11 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
 
   // ── Send diagnosis ─────────────────────────────────────────────────────
   function handleSendDiagnosis(shop) {
+    logReferral({
+      shopId: shop.id, shopName: shop.name, action: 'diagnosis_sent',
+      customerCity: null, customerProvince: shop.province || null,
+      diagnosisPrimary: (effectiveDiagnosis?.primary ?? effectiveDiagnosis)?.diagnosis || null,
+    });
     const message = buildDiagnosisMessage(effectiveDiagnosis, vehicleInfo);
     const mobile  = isMobileDevice();
     const phone   = shop.phone?.replace(/\D/g, '');
@@ -733,20 +732,28 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
     return [...arr].sort((a, b) => a.distanceKm - b.distanceKm);
   }
 
-  const activeFilter    = showFilterChips ? serviceFilter : null;
-  const displayPartners = shops ? sortShops(shops.partners.filter(s => shopMatchesFilter(s, activeFilter))) : [];
-  const displayNearby   = shops && !partnersOnly ? sortShops(shops.nearby.filter(s => shopMatchesFilter(s, activeFilter))) : [];
+  const activeFilter = showFilterChips ? serviceFilter : null;
+  // Single unified list — real shops only (partner program hasn't launched yet)
+  const baseShops = shops
+    ? [...(shops.partners || []), ...(shops.nearby || [])].filter(s => shopMatchesFilter(s, activeFilter))
+    : [];
+  const displayShops = [...baseShops].sort((a, b) => {
+    if (shopSort === 'distance') return (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
+    return computeAttrs(b)[shopSort] - computeAttrs(a)[shopSort];
+  });
 
   return (
-    <div className="mech-screen">
+    <div className={`mech-screen${embedded ? ' mech-screen--embedded' : ''}`}>
       {/* ── Header ── */}
       <header className="mech-header">
-        <button className="mech-header__back" onClick={onBack} aria-label="Go back">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
-        <h1 className="mech-header__title">Mechanics Near You</h1>
+        {!embedded && (
+          <button className="mech-header__back" onClick={onBack} aria-label="Go back">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+        )}
+        <h1 className="mech-header__title">{embedded ? '🏆 AutoShop' : 'Mechanics Near You'}</h1>
         <button className="mech-header__filter" onClick={() => setShowFilter(true)} aria-label="Filter and sort">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <line x1="4" y1="6" x2="20" y2="6"/>
@@ -890,88 +897,61 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
         {/* ── Loading skeletons ── */}
         {loading && (
           <>
-            <div className="mech-section-header" aria-hidden="true">
-              <div className="mech-section-star">✦</div>
-              <div>
-                <div className="mech-skeleton mech-skeleton--section-title" />
-                <div className="mech-skeleton mech-skeleton--section-sub" />
-              </div>
-            </div>
-            <PartnerSkeleton /><PartnerSkeleton />
-            <div style={{ marginTop: 24, marginBottom: 12 }}>
+            <div style={{ marginBottom: 12 }}>
               <div className="mech-skeleton mech-skeleton--section-title" />
             </div>
-            <NearbySkeleton /><NearbySkeleton /><NearbySkeleton />
+            <NearbySkeleton /><NearbySkeleton /><NearbySkeleton /><NearbySkeleton />
             <p className="mech-loading-hint">Finding shops near you…</p>
           </>
         )}
 
-        {/* ── Results ── */}
+        {/* ── Results: single unified list of real shops (EA-style cards) ── */}
         {!loading && shops && (
           <>
-            {/* ── Partner section ── */}
-            <div className="mech-section" aria-labelledby="mech-partner-heading">
-              <div className="mech-section-header">
-                <div className="mech-section-star" aria-hidden="true">✦</div>
-                <div>
-                  <h2 className="mech-section-title mech-section-title--partner" id="mech-partner-heading">
-                    FixIt AI Partner Shops
+            {displayShops.length > 0 && (
+              <div className="mech-section" aria-labelledby="mech-shops-heading">
+                {embedded ? (
+                  <div className="autoshop-header">
+                    <p className="autoshop-header__sub">Find the best-rated mechanics near you</p>
+                  </div>
+                ) : (
+                  <h2 className="mech-section-title mech-section-title--nearby" id="mech-shops-heading">
+                    Auto Shops Near You
+                    <span className="mech-section-title__count">{displayShops.length}</span>
                   </h2>
-                  <p className="mech-section-sub">Verified partners — we guarantee quality service</p>
-                </div>
-              </div>
+                )}
 
-              {displayPartners.length > 0 ? (
-                displayPartners.map(shop => (
-                  <PartnerCard
+                {/* Sort control */}
+                <div className="autoshop-sort" role="group" aria-label="Sort shops">
+                  <span className="autoshop-sort__label">Sort by:</span>
+                  {SHOP_SORTS.map(s => (
+                    <button
+                      key={s.key}
+                      className={`autoshop-sort__btn${shopSort === s.key ? ' autoshop-sort__btn--active' : ''}`}
+                      onClick={() => setShopSort(s.key)}
+                      aria-pressed={shopSort === s.key}
+                      type="button"
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+
+                {displayShops.map(shop => (
+                  <ShopPlayerCard
                     key={shop.id}
                     shop={shop}
-                    diagnosis={effectiveDiagnosis}
-                    vehicleInfo={vehicleInfo}
+                    isExpanded={expandedShopId === shop.id}
+                    onSelect={() => setExpandedShopId(prev => prev === shop.id ? null : shop.id)}
                     onSendDiagnosis={handleSendDiagnosis}
+                    hasDiagnosis={!!effectiveDiagnosis}
                   />
-                ))
-              ) : (
-                <div className="mech-no-partners">
-                  <p className="mech-no-partners__text">
-                    No partner shops in your area yet.
-                  </p>
-                  <button
-                    className="mech-no-partners__suggest"
-                    onClick={() => { setInquiryPreFill(''); setShowInquiry(true); }}
-                  >
-                    Become a Partner ↗
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* ── Nearby section ── */}
-            {displayNearby.length > 0 && (
-              <div className="mech-section" aria-labelledby="mech-nearby-heading">
-                <h2
-                  className="mech-section-title mech-section-title--nearby"
-                  id="mech-nearby-heading"
-                >
-                  Nearby Auto Shops
-                  <span className="mech-section-title__count">{displayNearby.length}</span>
-                </h2>
-
-                {displayNearby.map(shop => (
-                  <NearbyCard key={shop.id} shop={shop} onSuggest={handleSuggest} />
                 ))}
-
-                <button
-                  className="mech-recommend-cta"
-                  onClick={() => { setInquiryPreFill(''); setShowInquiry(true); }}
-                >
-                  Know a great shop? Recommend them →
-                </button>
               </div>
             )}
 
-            {/* ── Both empty ── */}
-            {displayPartners.length === 0 && displayNearby.length === 0 && hasCoords && (
+            {/* ── Empty ── */}
+            {displayShops.length === 0 && hasCoords && (
               <div className="mech-empty">
                 <div className="mech-empty__icon">🔧</div>
                 <p className="mech-empty__title">No shops found within {radiusKm} km</p>
@@ -982,24 +962,21 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
               </div>
             )}
 
-            {/* ── Partner promo footer ── */}
-            {displayNearby.length > 0 && (
-              <div className="mech-partner-cta">
-                <div className="mech-section-star mech-partner-cta__star" aria-hidden="true">✦</div>
-                <div className="mech-partner-cta__body">
-                  <p className="mech-partner-cta__title">Is your shop on this list?</p>
-                  <p className="mech-partner-cta__sub">
-                    FixIt AI partners get direct referrals from diagnosed drivers in your area.
-                  </p>
-                  <button
-                    className="mech-partner-cta__btn"
-                    onClick={() => { setInquiryPreFill(''); setShowInquiry(true); }}
-                  >
-                    Join as a Partner →
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* ── Gold "Own a Shop?" CTA ── */}
+            <div className="mech-own-shop-cta">
+              <div className="mech-own-shop-cta__star" aria-hidden="true">✦</div>
+              <h3 className="mech-own-shop-cta__title">Own a Shop?</h3>
+              <p className="mech-own-shop-cta__sub">
+                Join FixIt AI and get customers sent directly to you.
+              </p>
+              <button
+                className="mech-own-shop-cta__btn"
+                onClick={() => { setInquiryPreFill(''); setShowInquiry(true); }}
+                type="button"
+              >
+                Apply to Partner →
+              </button>
+            </div>
           </>
         )}
 
@@ -1010,7 +987,6 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
       {showFilter && (
         <FilterSheet
           radiusKm={radiusKm}
-          partnersOnly={partnersOnly}
           sortBy={sortBy}
           onApply={applyFilters}
           onClose={() => setShowFilter(false)}

@@ -4,6 +4,7 @@ import { YEARS, MAKES, MODELS_BY_MAKE } from '../data/vehicles.js';
 import { getTrimsForModel }              from '../data/trims.js';
 import { getColorsForVehicle }           from '../data/vehicleColors.js';
 import AddressAutocomplete               from './AddressAutocomplete.jsx';
+import VehicleSilhouette                 from './ui/VehicleSilhouette.jsx';
 import { validatePostalCode, detectPostalCountry } from '../services/addressService.js';
 
 // ── Wrapper that returns 'valid' | 'invalid' | null ──────────────────────────
@@ -178,6 +179,15 @@ export default function VehicleTab({
                 <>
                   <div className="veh-photo-placeholder__spinner" />
                   <span className="veh-photo-placeholder__text">Analyzing photo…</span>
+                </>
+              ) : vehicleInfo?.make && vehicleInfo?.model ? (
+                <>
+                  <VehicleSilhouette
+                    make={vehicleInfo.make}
+                    model={vehicleInfo.model}
+                    color={vehicleInfo.vehicleColor || null}
+                  />
+                  <span className="veh-photo-placeholder__sub">Tap to add a real photo of your {vehicleInfo.model}</span>
                 </>
               ) : (
                 <>

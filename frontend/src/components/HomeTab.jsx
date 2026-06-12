@@ -1,84 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import './HomeTab.css';
 import { healthTier } from '../utils/healthScore.js';
+import HealthGauge from './ui/HealthGauge.jsx';
+import SettingsSheet from './SettingsSheet.jsx';
+import VehicleSilhouette from './ui/VehicleSilhouette.jsx';
+import AlertsSheet from './AlertsSheet.jsx';
 
-// ── Vehicle type detection ──────────────────────────────────────────────────
-const SUV_KEYWORDS    = ['explorer','tahoe','suburban','escalade','4runner','pilot','cr-v','crv','rav4','rogue','tucson','equinox','traverse','pathfinder','armada','sequoia','wrangler','cherokee','compass','telluride','palisade','santa fe','cx-5','cx5','cx-9','outback','forester','highlander','gx','lx','rx','nx','rdx','mdx','qx80','qx60','murano','xc90','xc60','defender','range rover','discovery','navigator','expedition','q5','q7','q8','gle','glc','gls'];
-const TRUCK_KEYWORDS  = ['f-150','f150','f-250','silverado','sierra','colorado','tundra','tacoma','ram ','1500','2500','3500','ranger','maverick','ridgeline','frontier','titan'];
-const SPORTS_KEYWORDS = ['corvette','camaro','mustang','charger','challenger','supra','gt-r','gtr','nsx','911','718','boxster','cayman','f-type','amg gt','m3','m4','m5','m8','wrx','86','brz','miata','mx-5','z4'];
-
-function getVehicleType(make, model) {
-  const s = `${make} ${model}`.toLowerCase();
-  if (TRUCK_KEYWORDS.some(k => s.includes(k)))  return 'truck';
-  if (SUV_KEYWORDS.some(k => s.includes(k)))    return 'suv';
-  if (SPORTS_KEYWORDS.some(k => s.includes(k))) return 'sports';
-  return 'sedan';
-}
-
-// ── Vehicle silhouettes (fallback when no customer photo) ───────────────────
-function VehicleSilhouette({ type, color }) {
-  const body  = color || '#3c3c4a';
-  const glass = color ? `${color}22` : 'rgba(180,200,255,0.08)';
-  const bg    = '#111214';
-  const hub   = color ? `${color}99` : '#4a4a5a';
-
-  if (type === 'truck') return (
-    <svg viewBox="0 0 220 80" fill="none" className="home-hero__car-svg">
-      <path d="M12,60 L18,48 L28,42 L28,16 C28,12 36,9 55,9 L98,9 L98,42 L178,42 C184,44 188,50 188,56 L188,62 L12,62 Z" fill={body} opacity="0.9"/>
-      <path d="M32,11 L32,40 L90,40 L90,11 Z" fill={glass}/>
-      <circle cx="52"  cy="64" r="14" fill={bg}/><circle cx="52"  cy="64" r="10" fill={hub} opacity="0.6"/><circle cx="52"  cy="64" r="3"  fill={bg}/>
-      <circle cx="164" cy="64" r="14" fill={bg}/><circle cx="164" cy="64" r="10" fill={hub} opacity="0.6"/><circle cx="164" cy="64" r="3"  fill={bg}/>
-    </svg>
-  );
-
-  if (type === 'suv') return (
-    <svg viewBox="0 0 220 82" fill="none" className="home-hero__car-svg">
-      <path d="M12,62 L18,48 L30,34 L55,28 L55,13 C55,10 63,8 74,8 L145,8 C156,8 164,10 164,13 L164,28 L172,34 L190,48 L196,62 L12,62 Z" fill={body} opacity="0.9"/>
-      <path d="M57,28 L57,13 L96,10 L96,28 Z" fill={glass}/><path d="M104,10 L162,13 L162,28 L104,28 Z" fill={glass}/>
-      <circle cx="55"  cy="65" r="15" fill={bg}/><circle cx="55"  cy="65" r="10" fill={hub} opacity="0.6"/><circle cx="55"  cy="65" r="3"  fill={bg}/>
-      <circle cx="163" cy="65" r="15" fill={bg}/><circle cx="163" cy="65" r="10" fill={hub} opacity="0.6"/><circle cx="163" cy="65" r="3"  fill={bg}/>
-    </svg>
-  );
-
-  if (type === 'sports') return (
-    <svg viewBox="0 0 220 72" fill="none" className="home-hero__car-svg">
-      <path d="M10,56 L20,50 L40,34 L70,22 C82,16 95,13 110,13 C125,13 145,17 165,28 L184,40 L200,52 L200,58 L10,58 Z" fill={body} opacity="0.9"/>
-      <path d="M55,30 C65,18 82,14 106,13 L104,28 C88,28 72,28 62,34 Z" fill={glass}/>
-      <path d="M112,13 C130,14 148,20 162,28 L155,34 L110,34 Z" fill={glass}/>
-      <circle cx="52"  cy="60" r="12" fill={bg}/><circle cx="52"  cy="60" r="8"  fill={hub} opacity="0.6"/><circle cx="52"  cy="60" r="2.5" fill={bg}/>
-      <circle cx="162" cy="60" r="12" fill={bg}/><circle cx="162" cy="60" r="8"  fill={hub} opacity="0.6"/><circle cx="162" cy="60" r="2.5" fill={bg}/>
-    </svg>
-  );
-
-  return (
-    <svg viewBox="0 0 220 74" fill="none" className="home-hero__car-svg">
-      <path d="M12,58 L18,52 L38,38 L58,28 L65,16 C68,12 78,10 100,10 C122,10 134,12 140,16 L155,28 L178,36 L200,52 L202,58 L12,58 Z" fill={body} opacity="0.9"/>
-      <path d="M62,28 C68,16 80,11 98,10 L96,27 C82,27 70,27 64,32 Z" fill={glass}/>
-      <path d="M106,10 C124,11 136,17 148,28 L143,33 L105,28 Z" fill={glass}/>
-      <circle cx="52"  cy="61" r="13" fill={bg}/><circle cx="52"  cy="61" r="9"  fill={hub} opacity="0.6"/><circle cx="52"  cy="61" r="2.5" fill={bg}/>
-      <circle cx="160" cy="61" r="13" fill={bg}/><circle cx="160" cy="61" r="9"  fill={hub} opacity="0.6"/><circle cx="160" cy="61" r="2.5" fill={bg}/>
-    </svg>
-  );
-}
-
-// ── Health score ring ───────────────────────────────────────────────────────
-function HealthRing({ score }) {
-  const R      = 30;
-  const circ   = 2 * Math.PI * R;
-  const offset = circ * (1 - score / 100);
-  const { color } = healthTier(score);
-  return (
-    <svg viewBox="0 0 80 80" width="76" height="76" style={{ flexShrink: 0 }}>
-      <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5"/>
-      <circle cx="40" cy="40" r={R} fill="none" stroke={color} strokeWidth="5"
-        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-        transform="rotate(-90 40 40)"
-        style={{ transition: 'stroke-dashoffset 1.2s ease-out, stroke 0.4s' }}
-      />
-      <text x="40" y="36" textAnchor="middle" fontSize="17" fontWeight="700" fill="white" fontFamily="Inter">{score}</text>
-      <text x="40" y="51" textAnchor="middle" fontSize="9"  fontWeight="600" fill="rgba(235,235,245,0.5)" fontFamily="Inter" letterSpacing="0.8">HEALTH</text>
-    </svg>
-  );
+function timeGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 // ── Stat card ───────────────────────────────────────────────────────────────
@@ -120,8 +52,23 @@ export default function HomeTab({
   currentOdoKm = 0,
   onStartDiagnosis,
   onNavigateTab,
+  theme = 'dark',
+  onThemeChange,
+  onUnitsChange,
+  onClearAll,
+  alerts = [],
+  unreadAlertCount = 0,
+  onMarkAlertsSeen,
+  onDismissAlert,
+  onClearAlerts,
 }) {
-  const vehicleType  = getVehicleType(vehicleInfo?.make || '', vehicleInfo?.model || '');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [alertsOpen,   setAlertsOpen]   = useState(false);
+
+  function openAlerts() {
+    setAlertsOpen(true);
+    onMarkAlertsSeen?.();
+  }
   const vehicleName  = vehicleInfo?.nickname
     || [vehicleInfo?.year, vehicleInfo?.make, vehicleInfo?.model].filter(Boolean).join(' ')
     || 'My Vehicle';
@@ -217,8 +164,49 @@ export default function HomeTab({
     else onObd2ConnectMock?.();
   }
 
+  const ownerFirst = (vehicleInfo?.ownerName || '').trim().split(/\s+/)[0];
+
   return (
     <div className="home-tab">
+      {/* ── Header: greeting + theme toggle + settings ── */}
+      <header className="home-header">
+        <div className="home-header__text">
+          <h1 className="home-header__greeting">
+            {timeGreeting()}{ownerFirst ? `, ${ownerFirst}` : ''}
+          </h1>
+          <p className="home-header__sub">Your virtual mechanic is ready</p>
+        </div>
+        <div className="home-header__btns">
+          <button
+            className="home-header__btn header-alerts-btn"
+            onClick={openAlerts}
+            aria-label={unreadAlertCount > 0 ? `Alerts — ${unreadAlertCount} unread` : 'Alerts'}
+            type="button"
+          >
+            <span aria-hidden="true">🔔</span>
+            {unreadAlertCount > 0 && (
+              <span className="header-alert-badge">{unreadAlertCount > 9 ? '9+' : unreadAlertCount}</span>
+            )}
+          </button>
+          <button
+            className="home-header__btn"
+            onClick={() => onThemeChange?.(theme === 'dark' ? 'light' : 'dark')}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            type="button"
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+          <button
+            className="home-header__btn"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+            type="button"
+          >
+            ⚙
+          </button>
+        </div>
+      </header>
+
       {/* ── Hidden file inputs ── */}
       <input
         ref={cameraInputRef}
@@ -293,25 +281,39 @@ export default function HomeTab({
                 <span className="home-hero__camera-placeholder__text">{vehiclePhotoError}</span>
                 <span className="home-hero__camera-placeholder__sub">Tap to try again</span>
               </div>
-            ) : (
-              /* Default: SVG silhouette with "Add Photo" tap area */
+            ) : vehicleInfo?.make && vehicleInfo?.model ? (
+              /* Body-type silhouette for their make/model with "Add Photo" tap */
               <>
-                <div className="home-hero__car">
-                  <VehicleSilhouette type={vehicleType} color={vehicleColor || null} />
+                <div className="home-hero__car home-hero__car--silhouette">
+                  <VehicleSilhouette
+                    make={vehicleInfo.make}
+                    model={vehicleInfo.model}
+                    color={vehicleColor || null}
+                  />
                 </div>
-                <div
-                  className="home-hero__camera-tap"
+                <button
+                  className="home-hero__photo-edit home-hero__photo-edit--add"
                   onClick={() => setShowPhotoOptions(true)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => e.key === 'Enter' && setShowPhotoOptions(true)}
                   aria-label="Add vehicle photo"
+                  type="button"
                 >
-                  <span className="home-hero__camera-tap__icon">📷</span>
-                  <span className="home-hero__camera-tap__text">Tap to add a photo of your vehicle</span>
-                  <span className="home-hero__camera-tap__sub">Take a photo or choose from your library</span>
-                </div>
+                  📷
+                </button>
               </>
+            ) : (
+              /* No vehicle set yet */
+              <div
+                className="home-hero__camera-tap"
+                onClick={() => setShowPhotoOptions(true)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => e.key === 'Enter' && setShowPhotoOptions(true)}
+                aria-label="Add vehicle photo"
+              >
+                <span className="home-hero__camera-tap__icon">📸</span>
+                <span className="home-hero__camera-tap__text">Add your vehicle to see it here</span>
+                <span className="home-hero__camera-tap__sub">Set it up in the Vehicle tab, or add a photo</span>
+              </div>
             )}
           </>
         )}
@@ -319,7 +321,7 @@ export default function HomeTab({
         {/* Bottom gradient scrim (always rendered) */}
         <div className="home-hero__bottom-gradient" />
 
-        {/* Bottom row: vehicle name + health ring */}
+        {/* Bottom row: vehicle name + health gauge */}
         <div className="home-hero__bottom">
           <div className="home-hero__info">
             <h1 className="home-hero__name">{vehicleName}</h1>
@@ -327,7 +329,9 @@ export default function HomeTab({
               <p className="home-hero__sub">{vehicleSub}</p>
             )}
           </div>
-          <HealthRing score={healthScore} />
+          <div className="home-hero__gauge-wrap">
+            <HealthGauge score={healthScore} size={104} />
+          </div>
         </div>
 
         {/* Fault badge — top left */}
@@ -397,6 +401,50 @@ export default function HomeTab({
         </div>
       )}
 
+      {/* ── Quick actions (2×2 grid, Tesla-style gradients) ── */}
+      <div className="home-actions">
+        <button className="home-action home-action--diagnose" onClick={onStartDiagnosis}>
+          <span className="home-action__icon" aria-hidden="true">🎙️</span>
+          <span className="home-action__label">Start Diagnosis</span>
+        </button>
+        <button className="home-action home-action--connect" onClick={handleObd2Action}>
+          <span className="home-action__icon" aria-hidden="true">🔌</span>
+          <span className="home-action__label">{obd2Connected ? 'View Live Data' : 'Connect OBD2'}</span>
+        </button>
+        <button className="home-action home-action--mechanic" onClick={onFindMechanic}>
+          <span className="home-action__icon" aria-hidden="true">🔧</span>
+          <span className="home-action__label">Find Mechanic</span>
+          <span className="home-action__badge" aria-hidden="true">✦</span>
+        </button>
+        <button className="home-action home-action--service" onClick={() => onNavigateTab?.('maintenance')}>
+          <span className="home-action__icon" aria-hidden="true">📋</span>
+          <span className="home-action__label">Service Log</span>
+        </button>
+      </div>
+
+      {/* ── Why FixIt AI? — the 3-input advantage ── */}
+      <div className="home-why">
+        <h2 className="home-section-title home-why__title">WHY FIXIT AI?</h2>
+        <div className="home-why__row">
+          <div className="home-why__card" style={{ '--i': 0 }}>
+            <span className="home-why__icon" aria-hidden="true">🎙️</span>
+            <span className="home-why__name">Sound</span>
+            <span className="home-why__desc">AI listens to your engine</span>
+          </div>
+          <div className="home-why__card" style={{ '--i': 1 }}>
+            <span className="home-why__icon" aria-hidden="true">📷</span>
+            <span className="home-why__name">Photos</span>
+            <span className="home-why__desc">Sees damage &amp; warning lights</span>
+          </div>
+          <div className="home-why__card" style={{ '--i': 2 }}>
+            <span className="home-why__icon" aria-hidden="true">🔌</span>
+            <span className="home-why__name">OBD2</span>
+            <span className="home-why__desc">Reads live engine data</span>
+          </div>
+        </div>
+        <p className="home-why__sub">FixIt AI uses 3 inputs — no other app does this.</p>
+      </div>
+
       {/* ── Specs strip (hidden when no specs for this vehicle) ── */}
       {specChips.length > 0 && (
         <div className="home-specs-strip" aria-label="Vehicle specifications">
@@ -408,27 +456,6 @@ export default function HomeTab({
           ))}
         </div>
       )}
-
-      {/* ── Quick actions ── */}
-      <div className="home-actions">
-        <button className="home-action" onClick={onStartDiagnosis}>
-          <span className="home-action__icon" aria-hidden="true">🎙️</span>
-          <span className="home-action__label">Start Diagnosis</span>
-        </button>
-        <button className="home-action" onClick={handleObd2Action}>
-          <span className="home-action__icon" aria-hidden="true">🔌</span>
-          <span className="home-action__label">{obd2Connected ? 'View Live Data' : 'Connect OBD2'}</span>
-        </button>
-        <button className="home-action" onClick={onFindMechanic}>
-          <span className="home-action__icon" aria-hidden="true">🔧</span>
-          <span className="home-action__label">Find Mechanic</span>
-          <span className="home-action__badge" aria-hidden="true">✦</span>
-        </button>
-        <button className="home-action" onClick={() => onNavigateTab?.('maintenance')}>
-          <span className="home-action__icon" aria-hidden="true">📋</span>
-          <span className="home-action__label">Service Log</span>
-        </button>
-      </div>
 
       {/* ── Photo options bottom sheet ── */}
       {showPhotoOptions && (
@@ -602,6 +629,31 @@ export default function HomeTab({
       )}
 
       <div style={{ height: '100px' }} />
+
+      {/* ── Alerts bottom sheet ── */}
+      {alertsOpen && (
+        <AlertsSheet
+          alerts={alerts}
+          onDismiss={onDismissAlert}
+          onClearAll={onClearAlerts}
+          onClose={() => setAlertsOpen(false)}
+        />
+      )}
+
+      {/* ── Settings bottom sheet ── */}
+      {settingsOpen && (
+        <SettingsSheet
+          vehicleInfo={vehicleInfo}
+          onVehicleInfoChange={onVehicleInfoChange}
+          theme={theme}
+          onThemeChange={onThemeChange}
+          units={units}
+          onUnitsChange={onUnitsChange}
+          onClearAll={onClearAll}
+          onGoToVehicle={() => onNavigateTab?.('vehicle')}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }

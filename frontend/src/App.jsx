@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import TabBar          from './components/TabBar.jsx';
 import HomeTab         from './components/HomeTab.jsx';
 import LiveTab         from './components/LiveTab.jsx';
-import AlertsTab       from './components/AlertsTab.jsx';
+// AlertsTab retired — alerts now live in the Home header bell (AlertsSheet)
 import MaintenanceTab  from './components/MaintenanceTab.jsx';
 import VehicleTab      from './components/VehicleTab.jsx';
 import DiagnoseModal   from './components/DiagnoseModal.jsx';
 import MechanicScreen  from './screens/MechanicScreen.jsx';
+import OnboardingScreen from './screens/OnboardingScreen.jsx';
 import { DEFAULT_SCHEDULE, getScheduleForVehicle } from './data/serviceSchedules.js';
 import { getSpecsForVehicle } from './data/vehicleSpecs.js';
 import * as obd2Service from './services/obd2Service.js';
@@ -26,7 +27,7 @@ const DEFAULT_MAINTENANCE = Object.fromEntries(
 
 const EMPTY_VEHICLE_INFO = {
   year: '', make: '', model: '', trim: '',
-  nickname: '', vehicleColor: '',
+  nickname: '', vehicleColor: '', ownerName: '',
   odometer: '', odometerUnit: 'km',
   postalCode: '',
   licensePlate: '', vin: '', purchaseDate: '',
@@ -89,6 +90,20 @@ export default function App() {
   // ── Navigation ─────────────────────────────────────────────────────────────
   const [activeTab,     setActiveTab]     = useState('home');
   const [diagnoseOpen,  setDiagnoseOpen]  = useState(false);
+
+  // ── Theme (dark default, persisted) ────────────────────────────────────────
+  const [theme, setTheme] = useState(() => localStorage.getItem('fixit_theme') || 'dark');
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('fixit_theme', theme); } catch { /* ignore */ }
+  }, [theme]);
+
+  // ── Onboarding (first launch only) ──────────────────────────────────────────
+  const [onboarded, setOnboarded] = useState(() => localStorage.getItem('fixit_onboarded') === 'true');
+  const handleOnboardingComplete = useCallback(() => {
+    try { localStorage.setItem('fixit_onboarded', 'true'); } catch { /* ignore */ }
+    setOnboarded(true);
+  }, []);
   // mechanicScreen: null | { diagnosis: object|null, dtcContext: object|null, serviceFilter: string|null }
   const [mechanicScreen, setMechanicScreen] = useState(null);
 
@@ -155,9 +170,15 @@ export default function App() {
   // ── Recalls (fetched from backend, which queries NHTSA) ───────────────────
   const [recalls, setRecalls] = useState([]);
 
-  // ── Alerts seen (persisted — drives the unread dot on the tab bar) ────────
+  // ── Alerts seen (persisted — drives the unread badge on the Home bell) ────
   const [alertsSeen, setAlertsSeen] = useState(() => {
     const saved = readLS('fixit_alerts_seen', []);
+    return Array.isArray(saved) ? saved : [];
+  });
+
+  // ── Alerts dismissed (persisted — removed from the bell sheet) ────────────
+  const [alertsDismissed, setAlertsDismissed] = useState(() => {
+    const saved = readLS('fixit_alerts_dismissed', []);
     return Array.isArray(saved) ? saved : [];
   });
 
@@ -167,6 +188,7 @@ export default function App() {
   useEffect(() => { writeLS('fixit_maintenance_schedule', maintenanceSchedule); }, [maintenanceSchedule]);
   useEffect(() => { writeLS('fixit_recent_diagnoses', recentDiagnoses); }, [recentDiagnoses]);
   useEffect(() => { writeLS('fixit_alerts_seen', alertsSeen); }, [alertsSeen]);
+  useEffect(() => { writeLS('fixit_alerts_dismissed', alertsDismissed); }, [alertsDismissed]);
   useEffect(() => { writeLS('fixit_prefs', { units, location, locationCoords }); }, [units, location, locationCoords]);
 
   // ── Derived vehicle data ───────────────────────────────────────────────────
@@ -217,26 +239,37 @@ export default function App() {
     return () => { cancelled = true; };
   }, [vehicleInfo.make, vehicleInfo.model, vehicleInfo.year, vehicleInfo.trim]);
 
-  // ── Unified alerts + unread tracking ───────────────────────────────────────
+  // ── Unified alerts + unread tracking (shown in the Home header bell) ──────
   const alerts = useMemo(
-    () => generateAlerts({ faultCodes, maintenanceDue, recalls, recentDiagnoses }),
-    [faultCodes, maintenanceDue, recalls, recentDiagnoses]
+    () => generateAlerts({ faultCodes, maintenanceDue, recalls, recentDiagnoses })
+      .filter(a => !alertsDismissed.includes(a.id)),
+    [faultCodes, maintenanceDue, recalls, recentDiagnoses, alertsDismissed]
   );
 
-  const hasUnreadAlerts = useMemo(
-    () => alerts.some(a => !alertsSeen.includes(a.id)),
+  const unreadAlertCount = useMemo(
+    () => alerts.filter(a => !alertsSeen.includes(a.id)).length,
     [alerts, alertsSeen]
   );
 
-  // Mark all current alerts as seen when the user opens the Alerts tab
-  useEffect(() => {
-    if (activeTab !== 'alerts') return;
+  // Mark all current alerts as seen (called when the bell sheet opens)
+  const handleMarkAlertsSeen = useCallback(() => {
     setAlertsSeen(prev => {
       const ids = alerts.map(a => a.id);
       const same = ids.length === prev.length && ids.every(id => prev.includes(id));
       return same ? prev : ids;
     });
-  }, [activeTab, alerts]);
+  }, [alerts]);
+
+  const handleDismissAlert = useCallback((id) => {
+    setAlertsDismissed(prev => prev.includes(id) ? prev : [...prev, id]);
+  }, []);
+
+  const handleClearAllAlerts = useCallback(() => {
+    setAlertsDismissed(prev => {
+      const ids = alerts.map(a => a.id);
+      return [...new Set([...prev, ...ids])];
+    });
+  }, [alerts]);
 
   // ── OBD2 connection listener ───────────────────────────────────────────────
   useEffect(() => {
@@ -458,7 +491,12 @@ export default function App() {
   }, []);
 
   // ── FAB visibility ─────────────────────────────────────────────────────────
-  const showFAB = ['home', 'alerts', 'maintenance'].includes(activeTab) && !diagnoseOpen && !mechanicScreen;
+  const showFAB = ['home', 'maintenance'].includes(activeTab) && !diagnoseOpen && !mechanicScreen;
+
+  // ── First-launch onboarding ────────────────────────────────────────────────
+  if (!onboarded) {
+    return <OnboardingScreen onComplete={handleOnboardingComplete} />;
+  }
 
   return (
     <div className="app" style={{ display: 'flex', flexDirection: 'column', minHeight: '100svh' }}>
@@ -491,6 +529,15 @@ export default function App() {
             currentOdoKm={currentOdoKm}
             onStartDiagnosis={() => setDiagnoseOpen(true)}
             onNavigateTab={setActiveTab}
+            theme={theme}
+            onThemeChange={setTheme}
+            onUnitsChange={setUnits}
+            onClearAll={handleClearAll}
+            alerts={alerts}
+            unreadAlertCount={unreadAlertCount}
+            onMarkAlertsSeen={handleMarkAlertsSeen}
+            onDismissAlert={handleDismissAlert}
+            onClearAlerts={handleClearAllAlerts}
           />
         )}
         {activeTab === 'live' && (
@@ -522,14 +569,14 @@ export default function App() {
             maintenanceDue={maintenanceDue}
           />
         )}
-        {activeTab === 'alerts' && (
-          <AlertsTab
-            faultCodes={faultCodes}
-            recentDiagnoses={recentDiagnoses}
-            onClearFaults={handleDisconnectScanner}
-            alerts={alerts}
+        {activeTab === 'autoshop' && (
+          <MechanicScreen
+            embedded
+            location={location}
+            locationCoords={locationCoords}
             vehicleInfo={vehicleInfo}
-            onFindMechanic={handleOpenMechanic}
+            diagnosis={null}
+            onBack={() => setActiveTab('home')}
           />
         )}
         {activeTab === 'vehicle' && (
@@ -561,8 +608,6 @@ export default function App() {
         onTabChange={setActiveTab}
         showFAB={showFAB}
         onDiagnosePress={() => setDiagnoseOpen(true)}
-        alertCount={alerts.length}
-        hasUnreadAlerts={hasUnreadAlerts}
       />
 
       {/* ── Diagnose modal ── */}

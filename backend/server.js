@@ -823,21 +823,6 @@ function computeIsOpenNow(shop) {
   return curMins >= (oH * 60 + oM) && curMins < (cH * 60 + cM);
 }
 
-function isDuplicateOfPartner(osmName, osmLat, osmLon, partners) {
-  if (!osmName) return false;
-  const normalize = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-  const osmWords = normalize(osmName).split(/\s+/).filter(w => w.length > 3);
-
-  for (const p of partners) {
-    const dist = haversineKm(osmLat, osmLon, p.lat, p.lon);
-    if (dist < 0.05) return true;          // within 50m — definitely same
-    if (dist > 0.2) continue;              // too far to be same shop
-    const pWords = normalize(p.name).split(/\s+/).filter(w => w.length > 3);
-    if (osmWords.some(w => pWords.includes(w))) return true;
-  }
-  return false;
-}
-
 function fetchOverpass(query) {
   return new Promise((resolve, reject) => {
     const encoded = encodeURIComponent(query);
@@ -891,26 +876,7 @@ app.get('/api/shops', async (req, res) => {
       return res.status(400).json({ error: 'lat and lon are required' });
     }
 
-    // Partner shops — instant, no external call
-    const partners = PARTNER_SHOPS
-      .map(shop => {
-        const dKm = Math.round(haversineKm(lat, lon, shop.lat, shop.lon) * 10) / 10;
-        return {
-          ...shop,
-          isPartner:     true,
-          distanceKm:    dKm,
-          distanceLabel: distanceLabel(dKm),
-          mapsUrl:       mapsUrl(shop.lat, shop.lon),
-          isOpenNow:     computeIsOpenNow(shop),
-          todayHours:    getTodayHoursForShop(shop),
-        };
-      })
-      .filter(s => s.distanceKm <= radiusKm)
-      .sort((a, b) => a.distanceKm - b.distanceKm);
-
-    console.log(`[shops] lat=${lat} lon=${lon} r=${radiusKm}km → ${partners.length} partners`);
-
-    // OSM nearby shops — race against 5-second timeout
+    // Real shops from OpenStreetMap only — race against 5-second timeout
     let nearby = [];
     try {
       const osmElements = await Promise.race([
@@ -922,8 +888,7 @@ app.get('/api/shops', async (req, res) => {
         .filter(el => {
           const sLat = el.lat ?? el.center?.lat;
           const sLon = el.lon ?? el.center?.lon;
-          if (!sLat || !sLon || !el.tags?.name) return false;
-          return !isDuplicateOfPartner(el.tags.name, sLat, sLon, partners);
+          return sLat && sLon && el.tags?.name;
         })
         .map(el => {
           const sLat = el.lat ?? el.center.lat;
@@ -953,16 +918,17 @@ app.get('/api/shops', async (req, res) => {
         .sort((a, b) => a.distanceKm - b.distanceKm)
         .slice(0, 15);
 
-      console.log(`[shops] OSM returned ${nearby.length} nearby shops`);
+      console.log(`[shops] lat=${lat} lon=${lon} r=${radiusKm}km → ${nearby.length} OSM shops`);
     } catch (osmErr) {
       console.warn(`[shops] OSM skipped: ${osmErr.message}`);
     }
 
     res.json({
       ok:               true,
-      partners,
+      partners:         [],   // partner program not launched yet — see showPartnerCTA
       nearby,
-      total:            partners.length + nearby.length,
+      showPartnerCTA:   true,
+      total:            nearby.length,
       radiusKm,
       customerLocation: { lat, lon },
       loadedAt:         new Date().toISOString(),
@@ -971,6 +937,24 @@ app.get('/api/shops', async (req, res) => {
     console.error('[shops]', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Scanner waitlist ──────────────────────────────────────────────────────────
+// In-memory waitlist (persists until server restarts — good enough for now)
+const waitlist = [];
+
+app.post('/api/waitlist', (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'Invalid email' });
+  if (!waitlist.find(e => e.email === email)) {
+    waitlist.push({ email, timestamp: new Date().toISOString() });
+    console.log(`[waitlist] signup: ${email} (total: ${waitlist.length})`);
+  }
+  res.json({ success: true, message: "You're on the list! We'll notify you when the scanner ships." });
+});
+
+app.get('/api/waitlist/count', (_, res) => {
+  res.json({ count: waitlist.length });
 });
 
 // ── POST /api/log-referral ────────────────────────────────────────────────────

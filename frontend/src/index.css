@@ -2,7 +2,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* ── Apple/Tesla dark system ─────────────────────────────────────────────── */
+  color-scheme: light dark;
+
+  /* ── Apple/Tesla dark system (DEFAULT theme — dark) ─────────────────────── */
+  --shadow-color:  rgba(0,0,0,0.4);
   --bg-primary:    #111214;
   --bg-card:       #1c1c1e;
   --bg-card-hover: #242426;
@@ -60,6 +63,49 @@
   --danger-d:   var(--danger-muted);
 }
 
+/* Dark theme = :root defaults above (applied via data-theme="dark" on <html>) */
+[data-theme="dark"] { color-scheme: dark; }
+
+/* ── LIGHT MODE ─────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --shadow-color:  rgba(0,0,0,0.12);
+  --bg-primary:    #f2f2f7;
+  --bg-card:       #ffffff;
+  --bg-card-hover: #f9f9f9;
+  --bg-elevated:   #e5e5ea;
+  --bg-input:      #ffffff;
+
+  --accent:        #007aff;
+  --accent-bright: #0a84ff;
+  --accent-glow:   rgba(0,122,255,0.18);
+  --accent-muted:  rgba(0,122,255,0.10);
+
+  --success:       #34c759;
+  --warning:       #ff9500;
+  --danger:        #ff3b30;
+  --success-muted: rgba(52,199,89,0.14);
+  --warning-muted: rgba(255,149,0,0.14);
+  --danger-muted:  rgba(255,59,48,0.12);
+
+  --text-primary:   #1c1c1e;
+  --text-secondary: rgba(60,60,67,0.75);
+  --text-tertiary:  rgba(60,60,67,0.55);
+  --text-muted:     rgba(60,60,67,0.33);
+
+  --border:        rgba(0,0,0,0.10);
+  --border-strong: rgba(0,0,0,0.18);
+  --divider:       rgba(0,0,0,0.07);
+  --glass:         rgba(0,0,0,0.04);
+
+  --card-shadow:   0 2px 16px rgba(0,0,0,0.12);
+
+  /* Legacy aliases */
+  --surface3:      #e5e5ea;
+  --border2:       rgba(0,0,0,0.12);
+}
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -70,6 +116,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior: none;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Smooth theme switching across all surfaces (element-specific transitions win) */
+body * {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 #root { min-height: 100svh; }
@@ -176,3 +228,43 @@ body {
   border-radius: 3px;
   transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* ── Tesla typography system ──────────────────────────────────────────────── */
+.text-hero {
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.text-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.text-card-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+.text-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+
+/* ── Tesla card system ────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 2px 16px var(--shadow-color);
+  border: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card:active {
+  transform: scale(0.98);
+}
+
+/* Theme-aware scrollbar */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); }
