@@ -1210,3 +1210,31 @@
 .mech-screen--embedded .mech-body {
   padding-bottom: 100px;
 }
+
+/* ── Backend waking / retry card ──────────────────────────────────────────── */
+.shops-waking-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  margin: 0 0 16px;
+}
+.shops-waking-icon { font-size: 28px; }
+.shops-waking-text { flex: 1; }
+.shops-waking-text strong { font-size: 15px; color: var(--text-primary); }
+.shops-waking-text p { font-size: 13px; color: var(--text-secondary); margin: 4px 0 0; line-height: 1.45; }
+.shops-retry-btn {
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}

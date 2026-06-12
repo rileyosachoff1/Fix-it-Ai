@@ -27,6 +27,7 @@ export default function VehicleTab({
   obd2Connected, obd2DeviceName, onObd2Disconnect,
   onClearAll,
   vehiclePhoto, vehiclePhotoLoading,
+  wikiVehicleImage = null,
   onPhotoFileSelect, onPhotoRemove,
 }) {
   const models = MODELS_BY_MAKE[vehicleInfo.make] || [];
@@ -179,6 +180,15 @@ export default function VehicleTab({
                 <>
                   <div className="veh-photo-placeholder__spinner" />
                   <span className="veh-photo-placeholder__text">Analyzing photo…</span>
+                </>
+              ) : wikiVehicleImage ? (
+                <>
+                  <img
+                    src={wikiVehicleImage}
+                    alt={`${vehicleInfo?.make} ${vehicleInfo?.model}`}
+                    className="vehicle-wiki-image"
+                  />
+                  <span className="veh-photo-placeholder__sub">Stock photo — tap to add a photo of your own {vehicleInfo?.model}</span>
                 </>
               ) : vehicleInfo?.make && vehicleInfo?.model ? (
                 <>

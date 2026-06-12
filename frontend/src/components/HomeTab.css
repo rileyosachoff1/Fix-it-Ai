@@ -972,3 +972,19 @@
   text-align: center;
   line-height: 1.4;
 }
+
+/* ── Wikipedia vehicle image ──────────────────────────────────────────────── */
+.vehicle-wiki-image {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 16px;
+}
+.home-hero .vehicle-wiki-image {
+  /* full-bleed inside the hero, scrim and name overlay on top */
+  max-height: none;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+  opacity: 0.92;
+}

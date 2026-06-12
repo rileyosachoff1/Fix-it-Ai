@@ -61,6 +61,7 @@ export default function HomeTab({
   onMarkAlertsSeen,
   onDismissAlert,
   onClearAlerts,
+  wikiVehicleImage = null,
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [alertsOpen,   setAlertsOpen]   = useState(false);
@@ -281,6 +282,23 @@ export default function HomeTab({
                 <span className="home-hero__camera-placeholder__text">{vehiclePhotoError}</span>
                 <span className="home-hero__camera-placeholder__sub">Tap to try again</span>
               </div>
+            ) : wikiVehicleImage ? (
+              /* Real model photo from Wikipedia with "Add Photo" tap */
+              <>
+                <img
+                  src={wikiVehicleImage}
+                  alt={`${vehicleInfo?.make} ${vehicleInfo?.model}`}
+                  className="home-hero__photo vehicle-wiki-image"
+                />
+                <button
+                  className="home-hero__photo-edit home-hero__photo-edit--add"
+                  onClick={() => setShowPhotoOptions(true)}
+                  aria-label="Add vehicle photo"
+                  type="button"
+                >
+                  📷
+                </button>
+              </>
             ) : vehicleInfo?.make && vehicleInfo?.model ? (
               /* Body-type silhouette for their make/model with "Add Photo" tap */
               <>

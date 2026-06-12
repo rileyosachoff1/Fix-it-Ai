@@ -229,6 +229,27 @@ export default function App() {
     writeLS('fixit_health_score', { score: healthScore, computedAt: new Date().toISOString() });
   }, [healthScore]);
 
+  // ── Backend keepalive (Render free tier sleeps after ~15 min idle) ────────
+  useEffect(() => {
+    const ping = () => fetch('/api/health').catch(() => {});
+    ping(); // wake the backend immediately on load
+    const interval = setInterval(ping, 10 * 60 * 1000); // every 10 minutes
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── Real vehicle photo from Wikipedia (when no customer photo) ─────────────
+  const [wikiVehicleImage, setWikiVehicleImage] = useState(null);
+  useEffect(() => {
+    if (!vehicleInfo?.make || !vehicleInfo?.model) { setWikiVehicleImage(null); return; }
+    if (vehiclePhoto?.dataUrl) return; // customer uploaded their own photo — skip
+    let cancelled = false;
+    fetch(`/api/vehicle-image?make=${encodeURIComponent(vehicleInfo.make)}&model=${encodeURIComponent(vehicleInfo.model)}`)
+      .then(r => r.json())
+      .then(data => { if (!cancelled) setWikiVehicleImage(data.imageUrl || null); })
+      .catch(() => { if (!cancelled) setWikiVehicleImage(null); });
+    return () => { cancelled = true; };
+  }, [vehicleInfo?.make, vehicleInfo?.model, vehiclePhoto?.dataUrl]);
+
   // ── Recall check — when the vehicle identity changes ──────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -519,6 +540,7 @@ export default function App() {
             vehiclePhoto={vehiclePhoto}
             vehiclePhotoLoading={vehiclePhotoLoading}
             vehiclePhotoError={vehiclePhotoError}
+            wikiVehicleImage={wikiVehicleImage}
             onPhotoFileSelect={handleVehiclePhotoSelect}
             onPhotoRemove={handleVehiclePhotoRemove}
             onFindMechanic={() => handleOpenMechanic(null)}
@@ -596,6 +618,7 @@ export default function App() {
             onClearAll={handleClearAll}
             vehiclePhoto={vehiclePhoto}
             vehiclePhotoLoading={vehiclePhotoLoading}
+            wikiVehicleImage={wikiVehicleImage}
             onPhotoFileSelect={handleVehiclePhotoSelect}
             onPhotoRemove={handleVehiclePhotoRemove}
           />

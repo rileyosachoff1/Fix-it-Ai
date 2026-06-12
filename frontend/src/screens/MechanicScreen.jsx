@@ -635,17 +635,30 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
   }, []);
 
   // ── Search shops when coords become available ──────────────────────────
-  const doSearch = useCallback(async (searchLat, searchLon, radius) => {
+  const doSearch = useCallback(async (searchLat, searchLon, radius, isRetry = false) => {
+    // Guard: never call the API without valid coordinates
+    if (searchLat == null || searchLon == null || isNaN(searchLat) || isNaN(searchLon)) {
+      console.warn('[MechanicScreen] doSearch skipped — no valid coordinates (lat:', searchLat, 'lon:', searchLon, ')');
+      return;
+    }
+    console.log(`[MechanicScreen] GET /api/shops?lat=${searchLat}&lon=${searchLon}&radiusKm=${radius}${isRetry ? ' (auto-retry)' : ''}`);
     setLoading(true);
     setError(null);
     try {
       const data = await findShopsNearLocation(searchLat, searchLon, radius);
       setShops({ partners: data.partners || [], nearby: data.nearby || [] });
-    } catch (err) {
-      setError('Could not load shops. Check your connection and try again.');
-      console.error('[MechanicScreen]', err.message);
-    } finally {
       setLoading(false);
+    } catch (err) {
+      console.error('[MechanicScreen] shops fetch failed:', err.message);
+      if (!isRetry) {
+        // Render free tier sleeps after ~15 min — give it 8s to wake, retry once
+        setError('waking');
+        setLoading(false);
+        setTimeout(() => doSearch(searchLat, searchLon, radius, true), 8000);
+      } else {
+        setError('failed');
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -884,11 +897,19 @@ export default function MechanicScreen({ locationCoords, location, vehicleInfo, 
           </div>
         )}
 
-        {/* ── Error state ── */}
+        {/* ── Error / backend-waking state ── */}
         {error && (
-          <div className="mech-error" role="alert">
-            <span>{error}</span>
-            <button onClick={() => lat != null && lon != null && doSearch(lat, lon, radiusKm)}>
+          <div className="shops-waking-card" role="alert">
+            <div className="shops-waking-icon" aria-hidden="true">⏳</div>
+            <div className="shops-waking-text">
+              <strong>{error === 'waking' ? 'Connecting to servers…' : 'Still waking up…'}</strong>
+              <p>
+                {error === 'waking'
+                  ? 'First load takes up to 30 seconds. Retrying automatically.'
+                  : 'The server is taking longer than usual. Tap Retry to try again.'}
+              </p>
+            </div>
+            <button className="shops-retry-btn" onClick={() => doSearch(lat, lon, radiusKm)} type="button">
               Retry
             </button>
           </div>

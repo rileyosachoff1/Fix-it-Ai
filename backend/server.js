@@ -483,6 +483,12 @@ app.get('/health', (_, res) => res.json({
   aiEnabled: !!(process.env.ANTHROPIC_API_KEY?.trim()),
 }));
 
+// Keepalive ping (also wakes the Render instance from sleep)
+app.get('/api/health', (_, res) => res.json({
+  status: 'ok',
+  mode: process.env.ANTHROPIC_API_KEY?.trim() ? 'live' : 'demo',
+}));
+
 app.post('/api/diagnose', async (req, res) => {
   try {
     const {
@@ -762,6 +768,83 @@ app.get('/api/vehicle-specs', async (req, res) => {
   } catch (err) {
     console.error('[vehicle-specs]', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Real vehicle photos via Wikipedia ─────────────────────────────────────────
+
+const vehicleImageCache = new Map(); // "Make|Model" → { url, fetchedAt }, 24h TTL
+
+const WIKI_ARTICLE_MAP = {
+  'Ford|Mustang': 'Ford Mustang', 'Ford|F-150': 'Ford F-150',
+  'Ford|Escape': 'Ford Escape', 'Ford|Explorer': 'Ford Explorer',
+  'Ford|Bronco': 'Ford Bronco', 'Ford|Ranger': 'Ford Ranger (Americas)',
+  'Honda|Civic': 'Honda Civic', 'Honda|Accord': 'Honda Accord',
+  'Honda|CR-V': 'Honda CR-V', 'Honda|Pilot': 'Honda Pilot',
+  'Honda|HR-V': 'Honda HR-V', 'Honda|Ridgeline': 'Honda Ridgeline',
+  'Toyota|Camry': 'Toyota Camry', 'Toyota|Corolla': 'Toyota Corolla',
+  'Toyota|RAV4': 'Toyota RAV4', 'Toyota|Tacoma': 'Toyota Tacoma',
+  'Toyota|Highlander': 'Toyota Highlander', 'Toyota|Tundra': 'Toyota Tundra',
+  'Toyota|4Runner': 'Toyota 4Runner',
+  'Chevrolet|Silverado 1500': 'Chevrolet Silverado', 'Chevrolet|Camaro': 'Chevrolet Camaro',
+  'Chevrolet|Equinox': 'Chevrolet Equinox', 'Chevrolet|Tahoe': 'Chevrolet Tahoe',
+  'Chevrolet|Traverse': 'Chevrolet Traverse', 'Chevrolet|Colorado': 'Chevrolet Colorado',
+  'Chevrolet|Bolt': 'Chevrolet Bolt EV',
+  'GMC|Sierra 1500': 'GMC Sierra', 'GMC|Yukon': 'GMC Yukon',
+  'GMC|Acadia': 'GMC Acadia', 'GMC|Canyon': 'GMC Canyon',
+  'RAM|1500': 'Ram 1500', 'Ram|1500': 'Ram 1500',
+  'Dodge|Challenger': 'Dodge Challenger', 'Dodge|Charger': 'Dodge Charger',
+  'Jeep|Wrangler': 'Jeep Wrangler', 'Jeep|Grand Cherokee': 'Jeep Grand Cherokee',
+  'Jeep|Cherokee': 'Jeep Cherokee (KL)',
+  'Tesla|Model 3': 'Tesla Model 3', 'Tesla|Model Y': 'Tesla Model Y',
+  'Tesla|Model S': 'Tesla Model S', 'Tesla|Cybertruck': 'Tesla Cybertruck',
+  'BMW|3 Series': 'BMW 3 Series', 'BMW|X3': 'BMW X3', 'BMW|X5': 'BMW X5',
+  'BMW|4 Series': 'BMW 4 Series', 'BMW|5 Series': 'BMW 5 Series',
+  'Mercedes-Benz|C-Class': 'Mercedes-Benz C-Class',
+  'Mercedes-Benz|GLE': 'Mercedes-Benz GLE-Class',
+  'Subaru|Outback': 'Subaru Outback', 'Subaru|Forester': 'Subaru Forester',
+  'Subaru|WRX': 'Subaru WRX', 'Subaru|Legacy': 'Subaru Legacy',
+  'Mazda|CX-5': 'Mazda CX-5', 'Mazda|Mazda3': 'Mazda3',
+  'Nissan|Altima': 'Nissan Altima', 'Nissan|Rogue': 'Nissan Rogue',
+  'Nissan|Frontier': 'Nissan Frontier', 'Nissan|Murano': 'Nissan Murano',
+  'Hyundai|Tucson': 'Hyundai Tucson', 'Hyundai|Elantra': 'Hyundai Elantra',
+  'Hyundai|Santa Fe': 'Hyundai Santa Fe', 'Hyundai|Ioniq 5': 'Hyundai IONIQ 5',
+  'Kia|Sportage': 'Kia Sportage', 'Kia|Telluride': 'Kia Telluride',
+  'Kia|EV6': 'Kia EV6', 'Kia|Forte': 'Kia Forte',
+  'Volkswagen|GTI': 'Volkswagen Golf GTI', 'Volkswagen|Golf GTI': 'Volkswagen Golf GTI',
+  'Volkswagen|Tiguan': 'Volkswagen Tiguan', 'Volkswagen|Jetta': 'Volkswagen Jetta',
+};
+
+app.get('/api/vehicle-image', async (req, res) => {
+  const { make, model } = req.query;
+  if (!make || !model) return res.json({ imageUrl: null });
+
+  const cacheKey = make + '|' + model;
+  const cached = vehicleImageCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < 24 * 60 * 60 * 1000) {
+    return res.json({ imageUrl: cached.url });
+  }
+
+  const article = WIKI_ARTICLE_MAP[cacheKey];
+  if (!article) return res.json({ imageUrl: null });
+
+  try {
+    const apiUrl = 'https://en.wikipedia.org/w/api.php?action=query&titles=' +
+      encodeURIComponent(article) +
+      '&prop=pageimages&format=json&pithumbsize=600&origin=*';
+    const data = await Promise.race([
+      httpsGetJson(apiUrl),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Wikipedia timeout')), 6000)),
+    ]);
+    const pages = data?.query?.pages || {};
+    const page = Object.values(pages)[0];
+    const imageUrl = page?.thumbnail?.source || null;
+    vehicleImageCache.set(cacheKey, { url: imageUrl, fetchedAt: Date.now() });
+    console.log(`[vehicle-image] ${cacheKey} → ${imageUrl ? 'found' : 'none'}`);
+    res.json({ imageUrl });
+  } catch (e) {
+    console.log('[vehicle-image] fetch failed:', e.message);
+    res.json({ imageUrl: null });
   }
 });
 
